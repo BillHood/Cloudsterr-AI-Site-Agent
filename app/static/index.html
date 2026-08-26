@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.7</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.8</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.7 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.8 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -71,8 +71,8 @@
         <form id="authentication-form">
           <div class="form-grid">
             <label>Login path<input name="login_path" required value="/login" maxlength="500"></label>
-            <label>Username variable<input name="username_env" required placeholder="CLOUDSTERR_TEST_USERNAME" maxlength="64" autocomplete="off"></label>
-            <label>Password variable<input name="password_env" required placeholder="CLOUDSTERR_TEST_PASSWORD" maxlength="64" autocomplete="off"></label>
+            <label>Username variable name<input name="username_env" required placeholder="CLOUDSTERR_TEST_USERNAME" maxlength="64" autocomplete="off" aria-describedby="username-env-help"><span id="username-env-help" class="field-help">Enter an uppercase reference name—not the username itself.</span></label>
+            <label>Password variable name<input name="password_env" required placeholder="CLOUDSTERR_TEST_PASSWORD" maxlength="64" autocomplete="off" aria-describedby="password-env-help"><span id="password-env-help" class="field-help">Enter an uppercase reference name—not the password itself.</span></label>
           </div>
           <label class="confirmation"><input name="test_account_confirmed" type="checkbox" required><span>I confirm these names will reference a dedicated, limited-permission test account—not a personal or administrator account.</span></label>
           <button class="primary-button" type="submit">Save references</button>

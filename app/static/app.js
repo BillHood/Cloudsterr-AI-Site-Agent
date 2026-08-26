@@ -25,7 +25,9 @@ function formatApiError(data, fallback) {
     return detail
       .map((item) => {
         const field = Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body").join(" → ") : "Input";
-        return `${field || "Input"}: ${item.msg || "is invalid"}`;
+        const rawMessage = item.msg || "is invalid";
+        const readableMessage = rawMessage.replace(/^Value error,\s*/i, "");
+        return `${field || "Input"}: ${readableMessage}`;
       })
       .join("; ");
   }
