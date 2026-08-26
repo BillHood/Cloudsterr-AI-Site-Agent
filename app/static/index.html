@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.5</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.6</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.5 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.6 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -77,6 +77,21 @@
           <label class="confirmation"><input name="test_account_confirmed" type="checkbox" required><span>I confirm these names will reference a dedicated, limited-permission test account—not a personal or administrator account.</span></label>
           <button class="primary-button" type="submit">Save references</button>
           <p id="authentication-message" class="status-message" aria-live="polite"></p>
+        </form>
+        <div class="journey-divider"></div>
+        <h3>Approved login evidence</h3>
+        <p class="section-copy">Selectors describe controls; success requires both the approved path and visible text. Saving does not execute the journey.</p>
+        <form id="login-journey-form">
+          <div class="form-grid">
+            <label>Username selector<input name="username_selector" required placeholder="#email" maxlength="300"></label>
+            <label>Password selector<input name="password_selector" required placeholder="#password" maxlength="300"></label>
+            <label>Submit selector<input name="submit_selector" required placeholder="button[type='submit']" maxlength="300"></label>
+            <label>Success path<input name="success_path" required placeholder="/dashboard" maxlength="500"></label>
+          </div>
+          <label>Required success text<input name="success_text" required placeholder="Welcome" maxlength="300"></label>
+          <label class="confirmation"><input name="approval_confirmed" type="checkbox" required><span>I approve this exact login journey and deterministic success evidence for later controlled testing.</span></label>
+          <button class="primary-button" type="submit">Approve login definition</button>
+          <p id="login-journey-message" class="status-message" aria-live="polite"></p>
         </form>
       </section>
 
@@ -141,10 +156,10 @@
 
       <section class="next-step" aria-labelledby="next-step-title">
         <p class="eyebrow">Next milestone</p>
-        <h2 id="next-step-title">Approve a controlled login journey</h2>
+        <h2 id="next-step-title">Execute a controlled login journey</h2>
         <p>
-          Credential references may be configured, but login execution remains disabled.
-          Secret values, unrestricted post-login actions, editing, and deletion remain unavailable.
+          Credential references and exact login evidence may be approved, but login execution remains disabled.
+          Secret storage, unrestricted post-login actions, editing, and deletion remain unavailable.
         </p>
       </section>
     </main>

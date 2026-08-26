@@ -105,6 +105,27 @@ class AuthenticationProfile(BaseModel):
         return value
 
 
+class LoginJourney(BaseModel):
+    username_selector: str = Field(min_length=1, max_length=300)
+    password_selector: str = Field(min_length=1, max_length=300)
+    submit_selector: str = Field(min_length=1, max_length=300)
+    success_path: str = Field(min_length=1, max_length=500)
+    success_text: str = Field(min_length=1, max_length=300)
+    approval_confirmed: bool
+
+    @field_validator("username_selector", "password_selector", "submit_selector", "success_text")
+    @classmethod
+    def trim_journey_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("success_path")
+    @classmethod
+    def validate_success_path(cls, value: str) -> str:
+        value = value.strip()
+        if not value.startswith("/") or value.startswith("//"):
+            raise ValueError("Success path must be a site-relative path beginning with /")
+        return value
+
 def database_path() -> Path:
     data_root = Path(os.environ.get("CLOUDSTERR_DATA_DIR", DEFAULT_DATA_ROOT))
     data_root.mkdir(parents=True, exist_ok=True)
@@ -129,6 +150,22 @@ def connect_database() -> sqlite3.Connection:
             excluded_paths TEXT NOT NULL,
             status TEXT NOT NULL,
             created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS login_journeys (
+            site_id TEXT PRIMARY KEY,
+            username_selector TEXT NOT NULL,
+            password_selector TEXT NOT NULL,
+            submit_selector TEXT NOT NULL,
+            success_path TEXT NOT NULL,
+            success_text TEXT NOT NULL,
+            approved_at TEXT NOT NULL,
+            execution_enabled INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (site_id) REFERENCES sites(id),
+            FOREIGN KEY (site_id) REFERENCES authentication_profiles(site_id)
         )
         """
     )
@@ -268,7 +305,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.5",
+    version="0.0.6",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -705,4 +742,78 @@ async def configure_authentication_profile(site_id: str, profile: Authentication
         "username_env": profile.username_env,
         "password_env": profile.password_env,
         "execution_enabled": False,
+    }
+
+
+@app.get("/api/sites/{site_id}/login-journey", tags=["authentication"])
+async def get_login_journey(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        row = connection.execute("SELECT * FROM login_journeys WHERE site_id = ?", (site_id,)).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    if row is None:
+        return {"configured": False, "execution_enabled": False}
+    return {
+        "configured": True,
+        "username_selector": row["username_selector"],
+        "password_selector": row["password_selector"],
+        "submit_selector": row["submit_selector"],
+        "success_path": row["success_path"],
+        "success_text": row["success_text"],
+        "approved_at": row["approved_at"],
+        "execution_enabled": False,
+    }
+
+
+@app.put("/api/sites/{site_id}/login-journey", tags=["authentication"])
+async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
+    if not journey.approval_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Explicit approval of the deterministic login journey is required.",
+        )
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT site_id FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        if profile is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Authentication references must be configured first.")
+        allowed = site["allowed_path"].rstrip("/") or "/"
+        if allowed != "/" and journey.success_path != allowed and not journey.success_path.startswith(f"{allowed}/"):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Success path is outside the allowed boundary.")
+        approved_at = datetime.now(UTC).isoformat()
+        connection.execute(
+            """
+            INSERT INTO login_journeys (
+                site_id, username_selector, password_selector, submit_selector,
+                success_path, success_text, approved_at, execution_enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            ON CONFLICT(site_id) DO UPDATE SET
+                username_selector = excluded.username_selector,
+                password_selector = excluded.password_selector,
+                submit_selector = excluded.submit_selector,
+                success_path = excluded.success_path,
+                success_text = excluded.success_text,
+                approved_at = excluded.approved_at,
+                execution_enabled = 0
+            """,
+            (
+                site_id,
+                journey.username_selector,
+                journey.password_selector,
+                journey.submit_selector,
+                journey.success_path,
+                journey.success_text,
+                approved_at,
+            ),
+        )
+        connection.commit()
+    return {
+        "configured": True,
+        "approved_at": approved_at,
+        "execution_enabled": False,
+        "success_path": journey.success_path,
+        "success_text": journey.success_text,
     }

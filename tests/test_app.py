@@ -30,7 +30,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.5"}
+    assert response.json() == {"status": "ok", "version": "0.0.6"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -208,6 +208,22 @@ def test_authentication_profile_stores_references_not_secrets() -> None:
     stored = client.get(f"/api/sites/{site_id}/authentication")
     assert stored.json()["password_env"] == "CLOUDSTERR_TEST_PASSWORD"
 
+    journey = client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={
+            "username_selector": "#email",
+            "password_selector": "#password",
+            "submit_selector": "button[type='submit']",
+            "success_path": "/public/dashboard",
+            "success_text": "Welcome",
+            "approval_confirmed": True,
+        },
+    )
+    assert journey.status_code == 200
+    assert journey.json()["execution_enabled"] is False
+    stored_journey = client.get(f"/api/sites/{site_id}/login-journey")
+    assert stored_journey.json()["success_text"] == "Welcome"
+
 
 def test_authentication_profile_rejects_secret_like_values_and_missing_confirmation() -> None:
     created = client.post("/api/sites", json=registration_payload())
@@ -224,9 +240,24 @@ def test_authentication_profile_rejects_secret_like_values_and_missing_confirmat
     assert missing_confirmation.status_code == 422
 
 
+def test_login_journey_requires_authentication_profile_and_approval() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    payload = {
+        "username_selector": "#email",
+        "password_selector": "#password",
+        "submit_selector": "button",
+        "success_path": "/public/dashboard",
+        "success_text": "Welcome",
+        "approval_confirmed": True,
+    }
+    missing_profile = client.put(f"/api/sites/{site_id}/login-journey", json=payload)
+    assert missing_profile.status_code == 409
+
+
 def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.5</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.6</span>" in response.text
     assert "does not start discovery or monitoring" in response.text

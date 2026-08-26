@@ -15,6 +15,8 @@ const scheduleMessage = document.querySelector("#schedule-message");
 const authenticationPanel = document.querySelector("#authentication-panel");
 const authenticationForm = document.querySelector("#authentication-form");
 const authenticationMessage = document.querySelector("#authentication-message");
+const loginJourneyForm = document.querySelector("#login-journey-form");
+const loginJourneyMessage = document.querySelector("#login-journey-message");
 
 function renderSites(sites) {
   rows.replaceChildren();
@@ -302,9 +304,39 @@ async function openAuthentication(button) {
   authenticationForm.elements.password_env.value = data.password_env || "";
   authenticationForm.elements.test_account_confirmed.checked = false;
   authenticationMessage.textContent = data.configured ? "References are configured. Login execution is disabled." : "No authentication references are configured.";
+  const journeyResponse = await fetch(`/api/sites/${button.dataset.siteId}/login-journey`, {headers: {Accept: "application/json"}});
+  const journey = await journeyResponse.json();
+  loginJourneyForm.dataset.siteId = button.dataset.siteId;
+  loginJourneyForm.dataset.siteName = button.dataset.siteName;
+  for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text"]) {
+    loginJourneyForm.elements[name].value = journey[name] || "";
+  }
+  loginJourneyForm.elements.approval_confirmed.checked = false;
+  loginJourneyMessage.textContent = journey.configured ? "Login definition approved. Execution remains disabled." : "No login definition is approved.";
   document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
   authenticationPanel.hidden = false;
   authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function saveLoginJourney(event) {
+  event.preventDefault();
+  const formData = new FormData(loginJourneyForm);
+  if (!window.confirm(`Approve this exact login definition for ${loginJourneyForm.dataset.siteName}? It will not be executed.`)) return;
+  const payload = Object.fromEntries(formData.entries());
+  payload.approval_confirmed = formData.get("approval_confirmed") === "on";
+  const response = await fetch(`/api/sites/${loginJourneyForm.dataset.siteId}/login-journey`, {
+    method: "PUT",
+    headers: {"Content-Type": "application/json", Accept: "application/json"},
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    loginJourneyMessage.classList.add("error");
+    loginJourneyMessage.textContent = data.detail || "Login definition could not be saved.";
+    return;
+  }
+  loginJourneyMessage.classList.remove("error");
+  loginJourneyMessage.textContent = "Login definition approved. Execution remains disabled.";
 }
 
 async function saveAuthentication(event) {
@@ -417,4 +449,5 @@ rows.addEventListener("click", (event) => {
 baselineForm.addEventListener("submit", approveBaseline);
 scheduleForm.addEventListener("submit", saveSchedule);
 authenticationForm.addEventListener("submit", saveAuthentication);
+loginJourneyForm.addEventListener("submit", saveLoginJourney);
 loadSites();

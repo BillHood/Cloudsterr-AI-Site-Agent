@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.5`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.6`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.5 adds non-secret authentication-profile references for dedicated test accounts. It stores environment-variable names and an approved login path, never credential values, and keeps login execution disabled. Authenticated execution and deployment have not been created yet.
+Version 0.0.6 adds approval of deterministic login definitions: username, password, and submit selectors plus required success path and text. Saving a definition never executes it. Authenticated execution and deployment have not been created yet.
 
 ## Safety boundary
 
@@ -33,7 +33,7 @@ The proposed Version 1 architecture is:
 - Scheduling: application-level scheduler
 - Evidence storage: isolated local run directories
 
-Version 0.0.5 adds bounded authentication-profile metadata to the existing dashboard, discovery, baseline, execution, evidence, and scheduling capabilities. The remaining architecture is still a design recommendation rather than an installed capability.
+Version 0.0.6 adds bounded login-definition approval to the existing dashboard, discovery, baseline, execution, evidence, scheduling, and authentication-reference capabilities.
 
 ## Local startup
 

@@ -230,6 +230,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .schedule-button { min-height: 44px; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.5rem 0.75rem; background: var(--surface-strong); color: var(--text); cursor: pointer; font-weight: 750; }
 .schedule-button:disabled { cursor: not-allowed; opacity: 0.45; }
 .auth-button { min-height: 44px; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.5rem 0.75rem; background: var(--surface-strong); color: var(--text); cursor: pointer; font-weight: 750; }
+.journey-divider { margin: 2rem 0; border-top: 1px solid var(--border); }
 .run-card { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.8rem; padding: 1rem; }
 .run-card h3 { margin: 0; }
 .run-timing { color: var(--muted); }
