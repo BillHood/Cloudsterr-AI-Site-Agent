@@ -18,6 +18,21 @@ const authenticationMessage = document.querySelector("#authentication-message");
 const loginJourneyForm = document.querySelector("#login-journey-form");
 const loginJourneyMessage = document.querySelector("#login-journey-message");
 
+function formatApiError(data, fallback) {
+  const detail = data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        const field = Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body").join(" → ") : "Input";
+        return `${field || "Input"}: ${item.msg || "is invalid"}`;
+      })
+      .join("; ");
+  }
+  if (detail && typeof detail.message === "string") return detail.message;
+  return fallback;
+}
+
 function renderSites(sites) {
   rows.replaceChildren();
 
@@ -92,7 +107,7 @@ async function runDiscovery(button) {
       headers: {Accept: "application/json"},
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Discovery failed.");
+    if (!response.ok) throw new Error(formatApiError(data, "Discovery failed."));
     renderDiscovery(data.pages, button.dataset.siteName, button.dataset.siteId, data.run_id);
     message.textContent = `Discovery completed: ${data.page_count} permitted page${data.page_count === 1 ? "" : "s"} inventoried. No forms were submitted.`;
     await loadSites();
@@ -134,7 +149,7 @@ async function reviewDiscovery(button) {
   try {
     const response = await fetch(`/api/sites/${button.dataset.siteId}/discoveries`, {headers: {Accept: "application/json"}});
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Discovery history could not be loaded.");
+    if (!response.ok) throw new Error(formatApiError(data, "Discovery history could not be loaded."));
     if (data.runs.length === 0) throw new Error("No completed discovery is available for review.");
     const latest = data.runs[0];
     renderDiscovery(latest.pages, button.dataset.siteName, button.dataset.siteId, latest.id);
@@ -165,7 +180,7 @@ async function approveBaseline(event) {
       }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Baseline approval failed.");
+    if (!response.ok) throw new Error(formatApiError(data, "Baseline approval failed."));
     baselineMessage.textContent = `Baseline version ${data.version} approved by ${data.reviewer}.`;
     await loadSites();
   } catch (error) {
@@ -185,7 +200,7 @@ async function runBaseline(button) {
   try {
     const response = await fetch(`/api/sites/${button.dataset.siteId}/runs`, {method: "POST", headers: {Accept: "application/json"}});
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Run failed.");
+    if (!response.ok) throw new Error(formatApiError(data, "Run failed."));
     message.classList.toggle("error", data.failed > 0);
     message.textContent = `Run ${data.status}: ${data.passed} passed, ${data.failed} failed.`;
     await loadSites();
@@ -240,7 +255,7 @@ async function loadRunHistory(button) {
   try {
     const response = await fetch(`/api/sites/${button.dataset.siteId}/runs`, {headers: {Accept: "application/json"}});
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Run history could not be loaded.");
+    if (!response.ok) throw new Error(formatApiError(data, "Run history could not be loaded."));
     renderRunHistory(data.runs, button.dataset.siteName);
     message.textContent = `${data.runs.length} recorded run${data.runs.length === 1 ? "" : "s"} loaded.`;
   } catch (error) {
@@ -254,7 +269,7 @@ async function openSchedule(button) {
   const data = await response.json();
   if (!response.ok) {
     message.classList.add("error");
-    message.textContent = data.detail || "Schedule could not be loaded.";
+    message.textContent = formatApiError(data, "Schedule could not be loaded.");
     return;
   }
   scheduleForm.dataset.siteId = button.dataset.siteId;
@@ -282,7 +297,7 @@ async function saveSchedule(event) {
   const data = await response.json();
   if (!response.ok) {
     scheduleMessage.classList.add("error");
-    scheduleMessage.textContent = data.detail || "Schedule could not be saved.";
+    scheduleMessage.textContent = formatApiError(data, "Schedule could not be saved.");
     return;
   }
   scheduleMessage.classList.remove("error");
@@ -294,7 +309,7 @@ async function openAuthentication(button) {
   const data = await response.json();
   if (!response.ok) {
     message.classList.add("error");
-    message.textContent = data.detail || "Authentication references could not be loaded.";
+    message.textContent = formatApiError(data, "Authentication references could not be loaded.");
     return;
   }
   authenticationForm.dataset.siteId = button.dataset.siteId;
@@ -332,7 +347,7 @@ async function saveLoginJourney(event) {
   const data = await response.json();
   if (!response.ok) {
     loginJourneyMessage.classList.add("error");
-    loginJourneyMessage.textContent = data.detail || "Login definition could not be saved.";
+    loginJourneyMessage.textContent = formatApiError(data, "Login definition could not be saved.");
     return;
   }
   loginJourneyMessage.classList.remove("error");
@@ -356,7 +371,7 @@ async function saveAuthentication(event) {
   const data = await response.json();
   if (!response.ok) {
     authenticationMessage.classList.add("error");
-    authenticationMessage.textContent = data.detail || "References could not be saved.";
+    authenticationMessage.textContent = formatApiError(data, "References could not be saved.");
     return;
   }
   authenticationMessage.classList.remove("error");
@@ -415,8 +430,7 @@ async function registerSite(event) {
     });
     const data = await response.json();
     if (!response.ok) {
-      const detail = typeof data.detail === "string" ? data.detail : "Check the highlighted fields.";
-      throw new Error(detail);
+      throw new Error(formatApiError(data, "Check the highlighted fields."));
     }
     siteForm.reset();
     siteForm.elements.allowed_path.value = "/";
