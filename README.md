@@ -37,7 +37,10 @@ These are design recommendations, not yet installed or implemented decisions. De
 
 See [docs/PROJECT_DESIGN.md](docs/PROJECT_DESIGN.md).
 
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
 ## Current development rule
 
 Preserve the authorization boundary first. Deterministic browser evidence determines PASS, FAIL, WARNING, SKIPPED, or BLOCKED. AI may propose tests and interpret evidence, but it must not replace observable test results or expand authority.
-
