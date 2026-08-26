@@ -130,6 +130,7 @@ h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.5rem); }
 }
 
 .dashboard,
+.run-history,
 .discovery-results,
 .registration,
 .next-step {
@@ -142,7 +143,7 @@ h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.5rem); }
 
 .dashboard { padding: clamp(1.1rem, 3vw, 2rem); }
 
-.discovery-results { padding: clamp(1.5rem, 4vw, 2.5rem); }
+.discovery-results, .run-history { padding: clamp(1.5rem, 4vw, 2.5rem); }
 .inventory-card { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; }
 .inventory-card h3 { margin: 0; }
 .inventory-url { overflow-wrap: anywhere; color: var(--accent); }
@@ -222,6 +223,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .row-actions { display: flex; gap: 0.5rem; }
 .run-button { min-height: 44px; border: 1px solid var(--warning); border-radius: 0.6rem; padding: 0.5rem 0.75rem; background: rgba(255, 209, 102, 0.1); color: var(--warning); cursor: pointer; font-weight: 800; }
 .run-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.history-button { min-height: 44px; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.5rem 0.75rem; background: var(--surface-strong); color: var(--text); cursor: pointer; font-weight: 750; }
+.history-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.run-card { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.8rem; padding: 1rem; }
+.run-card h3 { margin: 0; }
+.run-timing { color: var(--muted); }
+.result-detail { margin-top: 0.65rem; border-left: 3px solid var(--accent); padding: 0.45rem 0.7rem; overflow-wrap: anywhere; }
+.result-fail, .result-blocked { border-color: #ff8f8f; }
 .baseline-form { max-width: 680px; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
 
 .section-heading {

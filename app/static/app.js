@@ -7,6 +7,8 @@ const discoveryResults = document.querySelector("#discovery-results");
 const discoveryPages = document.querySelector("#discovery-pages");
 const baselineForm = document.querySelector("#baseline-form");
 const baselineMessage = document.querySelector("#baseline-message");
+const runHistory = document.querySelector("#run-history");
+const runHistoryList = document.querySelector("#run-history-list");
 
 function renderSites(sites) {
   rows.replaceChildren();
@@ -24,7 +26,7 @@ function renderSites(sites) {
 
   for (const site of sites) {
     const row = document.createElement("tr");
-    const lastCheck = site.last_check ?? "Not yet run";
+    const lastCheck = site.last_check ? new Date(site.last_check).toLocaleString() : "Not yet run";
 
     row.innerHTML = `
       <td><span class="site-name"></span><span class="site-environment"></span></td>
@@ -32,7 +34,7 @@ function renderSites(sites) {
       <td class="last-check"></td>
       <td class="passed"></td>
       <td class="failed"></td>
-      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button><button class="run-button" type="button">Run now</button></div></td>
+      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button><button class="run-button" type="button">Run now</button><button class="history-button" type="button">History</button></div></td>
     `;
 
     row.querySelector(".site-name").textContent = site.name;
@@ -52,6 +54,10 @@ function renderSites(sites) {
     runButton.dataset.siteId = site.id;
     runButton.dataset.siteName = site.name;
     runButton.disabled = !["HEALTHY", "NEEDS ATTENTION"].includes(site.status);
+    const historyButton = row.querySelector(".history-button");
+    historyButton.dataset.siteId = site.id;
+    historyButton.dataset.siteName = site.name;
+    historyButton.disabled = site.last_check === null;
     rows.append(row);
   }
 }
@@ -176,6 +182,58 @@ async function runBaseline(button) {
   }
 }
 
+function renderRunHistory(runs, siteName) {
+  runHistoryList.replaceChildren();
+  if (runs.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No baseline runs have been recorded.";
+    runHistoryList.append(empty);
+  }
+  for (const run of runs) {
+    const article = document.createElement("article");
+    article.className = "run-card";
+    const heading = document.createElement("h3");
+    heading.textContent = `${run.status} · ${run.passed} passed · ${run.failed} failed`;
+    const timing = document.createElement("p");
+    const started = new Date(run.started_at);
+    const completed = run.completed_at ? new Date(run.completed_at) : null;
+    const duration = completed ? Math.max(0, completed - started) : null;
+    timing.className = "run-timing";
+    timing.textContent = `${started.toLocaleString()}${duration === null ? " · still running" : ` · ${(duration / 1000).toFixed(1)} seconds`}`;
+    article.append(heading, timing);
+    for (const result of run.details) {
+      const detail = document.createElement("div");
+      detail.className = `result-detail result-${result.status.toLowerCase()}`;
+      const label = document.createElement("strong");
+      label.textContent = `${result.status}: `;
+      const text = document.createElement("span");
+      text.textContent = `${result.url}${result.failures.length ? ` — ${result.failures.join("; ")}` : ""}`;
+      detail.append(label, text);
+      article.append(detail);
+    }
+    runHistoryList.append(article);
+  }
+  document.querySelector("#run-history-title").textContent = `${siteName} run history`;
+  runHistory.hidden = false;
+  runHistory.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function loadRunHistory(button) {
+  message.classList.remove("error");
+  message.textContent = `Loading ${button.dataset.siteName} run history…`;
+  try {
+    const response = await fetch(`/api/sites/${button.dataset.siteId}/runs`, {headers: {Accept: "application/json"}});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Run history could not be loaded.");
+    renderRunHistory(data.runs, button.dataset.siteName);
+    message.textContent = `${data.runs.length} recorded run${data.runs.length === 1 ? "" : "s"} loaded.`;
+  } catch (error) {
+    message.classList.add("error");
+    message.textContent = error.message;
+  }
+}
+
 async function loadSites() {
   refreshButton.disabled = true;
   message.classList.remove("error");
@@ -252,6 +310,8 @@ rows.addEventListener("click", (event) => {
   if (reviewButton) reviewDiscovery(reviewButton);
   const runButton = event.target.closest(".run-button");
   if (runButton) runBaseline(runButton);
+  const historyButton = event.target.closest(".history-button");
+  if (historyButton) loadRunHistory(historyButton);
 });
 baselineForm.addEventListener("submit", approveBaseline);
 loadSites();

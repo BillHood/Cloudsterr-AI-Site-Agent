@@ -177,7 +177,7 @@ def serialize_site(row: sqlite3.Row) -> dict[str, str | int | None | list[str]]:
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.2",
+    version="0.0.3",
 )
 app.add_middleware(
     TrustedHostMiddleware,
@@ -488,4 +488,18 @@ async def list_execution_runs(site_id: str) -> dict:
             "SELECT * FROM execution_runs WHERE site_id = ? ORDER BY started_at DESC",
             (site_id,),
         ).fetchall()
-    return {"runs": [dict(row) | {"details": json.loads(row["details_json"])} for row in rows]}
+    return {
+        "runs": [
+            {
+                "id": row["id"],
+                "baseline_id": row["baseline_id"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "status": row["status"],
+                "passed": row["passed"],
+                "failed": row["failed"],
+                "details": json.loads(row["details_json"]),
+            }
+            for row in rows
+        ]
+    }
