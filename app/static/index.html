@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.3</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.4</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.3 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.4 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -62,6 +62,19 @@
             <tbody id="site-rows"></tbody>
           </table>
         </div>
+      </section>
+
+      <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>
+        <p class="eyebrow">Automatic checks</p>
+        <h2 id="schedule-title">Schedule</h2>
+        <p class="section-copy">Schedules repeat approved read-only checks. Disable a schedule at any time to stop future automatic requests.</p>
+        <form id="schedule-form">
+          <label>Frequency<select name="frequency"><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
+          <label class="confirmation"><input name="enabled" type="checkbox"><span>Enable automatic checks for this site.</span></label>
+          <label class="confirmation"><input name="approval_confirmed" type="checkbox"><span>I authorize Cloudsterr to make recurring read-only requests within the approved baseline boundary.</span></label>
+          <button class="primary-button" type="submit">Save schedule</button>
+          <p id="schedule-message" class="status-message" aria-live="polite"></p>
+        </form>
       </section>
 
       <section id="run-history" class="run-history" aria-labelledby="run-history-title" hidden>
@@ -112,10 +125,10 @@
 
       <section class="next-step" aria-labelledby="next-step-title">
         <p class="eyebrow">Next milestone</p>
-        <h2 id="next-step-title">Schedule approved safe checks</h2>
+        <h2 id="next-step-title">Add controlled authenticated journeys</h2>
         <p>
-          Run Now is available only for approved baselines and remains read-only.
-          Credentials, form execution, scheduling, editing, and deletion remain unavailable.
+          Scheduling is now opt-in for approved read-only baselines. Credentials,
+          form execution, editing, and deletion remain unavailable.
         </p>
       </section>
     </main>

@@ -9,6 +9,9 @@ const baselineForm = document.querySelector("#baseline-form");
 const baselineMessage = document.querySelector("#baseline-message");
 const runHistory = document.querySelector("#run-history");
 const runHistoryList = document.querySelector("#run-history-list");
+const schedulePanel = document.querySelector("#schedule-panel");
+const scheduleForm = document.querySelector("#schedule-form");
+const scheduleMessage = document.querySelector("#schedule-message");
 
 function renderSites(sites) {
   rows.replaceChildren();
@@ -34,7 +37,7 @@ function renderSites(sites) {
       <td class="last-check"></td>
       <td class="passed"></td>
       <td class="failed"></td>
-      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button><button class="run-button" type="button">Run now</button><button class="history-button" type="button">History</button></div></td>
+      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button><button class="run-button" type="button">Run now</button><button class="history-button" type="button">History</button><button class="schedule-button" type="button">Schedule</button></div></td>
     `;
 
     row.querySelector(".site-name").textContent = site.name;
@@ -58,6 +61,10 @@ function renderSites(sites) {
     historyButton.dataset.siteId = site.id;
     historyButton.dataset.siteName = site.name;
     historyButton.disabled = site.last_check === null;
+    const scheduleButton = row.querySelector(".schedule-button");
+    scheduleButton.dataset.siteId = site.id;
+    scheduleButton.dataset.siteName = site.name;
+    scheduleButton.disabled = !["HEALTHY", "NEEDS ATTENTION"].includes(site.status);
     rows.append(row);
   }
 }
@@ -234,6 +241,46 @@ async function loadRunHistory(button) {
   }
 }
 
+async function openSchedule(button) {
+  const response = await fetch(`/api/sites/${button.dataset.siteId}/schedule`, {headers: {Accept: "application/json"}});
+  const data = await response.json();
+  if (!response.ok) {
+    message.classList.add("error");
+    message.textContent = data.detail || "Schedule could not be loaded.";
+    return;
+  }
+  scheduleForm.dataset.siteId = button.dataset.siteId;
+  scheduleForm.dataset.siteName = button.dataset.siteName;
+  scheduleForm.elements.frequency.value = data.frequency;
+  scheduleForm.elements.enabled.checked = data.enabled;
+  scheduleForm.elements.approval_confirmed.checked = false;
+  scheduleMessage.textContent = data.enabled && data.next_run_at ? `Next automatic run: ${new Date(data.next_run_at).toLocaleString()}` : "Automatic checks are disabled.";
+  document.querySelector("#schedule-title").textContent = `${button.dataset.siteName} schedule`;
+  schedulePanel.hidden = false;
+  schedulePanel.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function saveSchedule(event) {
+  event.preventDefault();
+  const formData = new FormData(scheduleForm);
+  const enabled = formData.get("enabled") === "on";
+  const action = enabled ? "enable recurring website requests" : "disable future automatic requests";
+  if (!window.confirm(`Save this schedule and ${action} for ${scheduleForm.dataset.siteName}?`)) return;
+  const response = await fetch(`/api/sites/${scheduleForm.dataset.siteId}/schedule`, {
+    method: "PUT",
+    headers: {"Content-Type": "application/json", Accept: "application/json"},
+    body: JSON.stringify({frequency: formData.get("frequency"), enabled, approval_confirmed: formData.get("approval_confirmed") === "on"}),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    scheduleMessage.classList.add("error");
+    scheduleMessage.textContent = data.detail || "Schedule could not be saved.";
+    return;
+  }
+  scheduleMessage.classList.remove("error");
+  scheduleMessage.textContent = data.enabled ? `Schedule enabled. Next run: ${new Date(data.next_run_at).toLocaleString()}` : "Schedule disabled. No automatic requests are planned.";
+}
+
 async function loadSites() {
   refreshButton.disabled = true;
   message.classList.remove("error");
@@ -312,6 +359,9 @@ rows.addEventListener("click", (event) => {
   if (runButton) runBaseline(runButton);
   const historyButton = event.target.closest(".history-button");
   if (historyButton) loadRunHistory(historyButton);
+  const scheduleButton = event.target.closest(".schedule-button");
+  if (scheduleButton) openSchedule(scheduleButton);
 });
 baselineForm.addEventListener("submit", approveBaseline);
+scheduleForm.addEventListener("submit", saveSchedule);
 loadSites();

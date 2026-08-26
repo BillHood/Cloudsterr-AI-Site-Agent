@@ -30,7 +30,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.3"}
+    assert response.json() == {"status": "ok", "version": "0.0.4"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -144,6 +144,14 @@ def test_discovery_records_inventory_without_form_execution(monkeypatch) -> None
     history = client.get(f"/api/sites/{site_id}/runs")
     assert history.json()["runs"][0]["status"] == "PASS"
 
+    schedule = client.put(
+        f"/api/sites/{site_id}/schedule",
+        json={"frequency": "daily", "enabled": True, "approval_confirmed": True},
+    )
+    assert schedule.status_code == 200
+    assert schedule.json()["enabled"] is True
+    assert schedule.json()["next_run_at"] is not None
+
 
 def test_baseline_requires_explicit_approval(monkeypatch) -> None:
     created = client.post("/api/sites", json=registration_payload())
@@ -167,9 +175,24 @@ def test_run_requires_approved_baseline() -> None:
     assert response.status_code == 409
 
 
+def test_schedule_requires_approval_and_baseline() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    missing_approval = client.put(
+        f"/api/sites/{site_id}/schedule",
+        json={"frequency": "hourly", "enabled": True, "approval_confirmed": False},
+    )
+    assert missing_approval.status_code == 422
+    missing_baseline = client.put(
+        f"/api/sites/{site_id}/schedule",
+        json={"frequency": "hourly", "enabled": True, "approval_confirmed": True},
+    )
+    assert missing_baseline.status_code == 409
+
+
 def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.3</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.4</span>" in response.text
     assert "does not start discovery or monitoring" in response.text

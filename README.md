@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.3`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.4`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.3 adds visible run history and per-page evidence for deterministic approved-baseline execution. It records PASS, FAIL, and BLOCKED outcomes with timestamps and failure explanations. Scheduling, authenticated discovery, and deployment have not been created yet.
+Version 0.0.4 adds opt-in hourly, daily, and weekly scheduling for approved read-only baselines. No schedule is enabled by default; recurring requests require explicit authorization. Authenticated discovery and deployment have not been created yet.
 
 ## Safety boundary
 
@@ -33,7 +33,7 @@ The proposed Version 1 architecture is:
 - Scheduling: application-level scheduler
 - Evidence storage: isolated local run directories
 
-Version 0.0.3 implements the plain frontend, FastAPI application shell, local SQLite site registry, bounded Playwright discovery, immutable baseline history, manual deterministic execution, and visible run evidence. The remaining architecture is still a design recommendation rather than an installed capability.
+Version 0.0.4 implements the plain frontend, FastAPI application shell, local SQLite site registry, bounded Playwright discovery, immutable baseline history, deterministic execution, visible run evidence, and opt-in application scheduling. The remaining architecture is still a design recommendation rather than an installed capability.
 
 ## Local startup
 

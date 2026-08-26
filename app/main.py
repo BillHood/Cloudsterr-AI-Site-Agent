@@ -1,8 +1,9 @@
+import asyncio
 import os
 import json
 import sqlite3
-from contextlib import closing
-from datetime import UTC, datetime
+from contextlib import asynccontextmanager, closing, suppress
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -74,6 +75,12 @@ class BaselineApproval(BaseModel):
         return value.strip()
 
 
+class ScheduleConfiguration(BaseModel):
+    frequency: Literal["hourly", "daily", "weekly"]
+    enabled: bool
+    approval_confirmed: bool
+
+
 def database_path() -> Path:
     data_root = Path(os.environ.get("CLOUDSTERR_DATA_DIR", DEFAULT_DATA_ROOT))
     data_root.mkdir(parents=True, exist_ok=True)
@@ -98,6 +105,18 @@ def connect_database() -> sqlite3.Connection:
             excluded_paths TEXT NOT NULL,
             status TEXT NOT NULL,
             created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schedules (
+            site_id TEXT PRIMARY KEY,
+            frequency TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            next_run_at TEXT,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id)
         )
         """
     )
@@ -174,10 +193,46 @@ def serialize_site(row: sqlite3.Row) -> dict[str, str | int | None | list[str]]:
     }
 
 
+def next_scheduled_time(frequency: str, from_time: datetime | None = None) -> datetime:
+    current = from_time or datetime.now(UTC)
+    delta = {"hourly": timedelta(hours=1), "daily": timedelta(days=1), "weekly": timedelta(weeks=1)}[frequency]
+    return current + delta
+
+
+async def scheduler_loop() -> None:
+    while True:
+        now = datetime.now(UTC)
+        with closing(connect_database()) as connection:
+            due = connection.execute(
+                "SELECT site_id, frequency FROM schedules WHERE enabled = 1 AND next_run_at <= ?",
+                (now.isoformat(),),
+            ).fetchall()
+            for schedule in due:
+                connection.execute(
+                    "UPDATE schedules SET next_run_at = ?, updated_at = ? WHERE site_id = ?",
+                    (next_scheduled_time(schedule["frequency"], now).isoformat(), now.isoformat(), schedule["site_id"]),
+                )
+            connection.commit()
+        for schedule in due:
+            with suppress(HTTPException, Exception):
+                await run_approved_baseline(schedule["site_id"])
+        await asyncio.sleep(30)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task = asyncio.create_task(scheduler_loop())
+    yield
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.3",
+    version="0.0.4",
+    lifespan=lifespan,
 )
 app.add_middleware(
     TrustedHostMiddleware,
@@ -503,3 +558,52 @@ async def list_execution_runs(site_id: str) -> dict:
             for row in rows
         ]
     }
+
+
+@app.get("/api/sites/{site_id}/schedule", tags=["schedules"])
+async def get_schedule(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        row = connection.execute("SELECT * FROM schedules WHERE site_id = ?", (site_id,)).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    if row is None:
+        return {"site_id": site_id, "frequency": "daily", "enabled": False, "next_run_at": None}
+    return {
+        "site_id": site_id,
+        "frequency": row["frequency"],
+        "enabled": bool(row["enabled"]),
+        "next_run_at": row["next_run_at"],
+    }
+
+
+@app.put("/api/sites/{site_id}/schedule", tags=["schedules"])
+async def configure_schedule(site_id: str, schedule: ScheduleConfiguration) -> dict:
+    if schedule.enabled and not schedule.approval_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Explicit approval is required to enable automatic website requests.",
+        )
+    now = datetime.now(UTC)
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        baseline = connection.execute("SELECT id FROM baselines WHERE site_id = ? LIMIT 1", (site_id,)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        if schedule.enabled and baseline is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An approved baseline is required.")
+        next_run_at = next_scheduled_time(schedule.frequency, now).isoformat() if schedule.enabled else None
+        connection.execute(
+            """
+            INSERT INTO schedules (site_id, frequency, enabled, next_run_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(site_id) DO UPDATE SET
+                frequency = excluded.frequency,
+                enabled = excluded.enabled,
+                next_run_at = excluded.next_run_at,
+                updated_at = excluded.updated_at
+            """,
+            (site_id, schedule.frequency, int(schedule.enabled), next_run_at, now.isoformat()),
+        )
+        connection.commit()
+    return {"site_id": site_id, "frequency": schedule.frequency, "enabled": schedule.enabled, "next_run_at": next_run_at}
