@@ -30,7 +30,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.3.0"}
+    assert response.json() == {"status": "ok", "version": "0.4.0"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -123,6 +123,35 @@ def test_discovery_records_inventory_without_form_execution(monkeypatch) -> None
     assert response.json()["page_count"] == 1
     listed = client.get(f"/api/sites/{site_id}/discoveries")
     assert listed.json()["runs"][0]["pages"][0]["forms"][0]["method"] == "POST"
+
+    approval = client.post(
+        f"/api/sites/{site_id}/baselines",
+        json={
+            "discovery_run_id": response.json()["run_id"],
+            "reviewer": "Authorized Reviewer",
+            "approval_confirmed": True,
+        },
+    )
+    assert approval.status_code == 201
+    assert approval.json()["version"] == 1
+    baselines = client.get(f"/api/sites/{site_id}/baselines")
+    assert baselines.json()["baselines"][0]["pages"][0]["title"] == "Demo"
+
+
+def test_baseline_requires_explicit_approval(monkeypatch) -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+
+    async def fake_discover(_boundary):
+        return [{"url": "https://example.com", "title": "Example", "status_code": 200, "links": [], "buttons": [], "forms": []}]
+
+    monkeypatch.setattr("app.main.discover", fake_discover)
+    run = client.post(f"/api/sites/{site_id}/discover")
+    response = client.post(
+        f"/api/sites/{site_id}/baselines",
+        json={"discovery_run_id": run.json()["run_id"], "reviewer": "Reviewer", "approval_confirmed": False},
+    )
+    assert response.status_code == 422
 
 
 def test_dashboard_is_served() -> None:

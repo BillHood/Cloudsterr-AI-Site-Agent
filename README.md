@@ -12,7 +12,7 @@ The product cycle is:
 
 ## Repository status
 
-Milestone 3 adds bounded, read-only public-page discovery to the local dashboard and SQLite site registry. Playwright inventories permitted pages, links, buttons, and forms without submitting forms or using credentials. Scheduling, authenticated discovery, baseline approval, and deployment have not been created yet.
+Milestone 4 adds human review and immutable, versioned baseline approval to bounded public-page discovery. Playwright inventories permitted pages, links, buttons, and forms without submitting forms or using credentials. Scheduling, authenticated discovery, baseline execution, and deployment have not been created yet.
 
 ## Safety boundary
 
@@ -31,7 +31,7 @@ The proposed Version 1 architecture is:
 - Scheduling: application-level scheduler
 - Evidence storage: isolated local run directories
 
-Milestone 3 implements the plain frontend, FastAPI application shell, local SQLite site registry, and bounded Playwright discovery. The remaining architecture is still a design recommendation rather than an installed capability.
+Milestone 4 implements the plain frontend, FastAPI application shell, local SQLite site registry, bounded Playwright discovery, and immutable baseline history. The remaining architecture is still a design recommendation rather than an installed capability.
 
 ## Local startup
 
@@ -52,7 +52,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8127
 
 Open <http://127.0.0.1:8127/>. The health check is available at <http://127.0.0.1:8127/api/health>.
 
-The server must remain bound to `127.0.0.1`. Milestone 3 has no user authentication and is not approved for network exposure. Registered configuration and discovery results are stored in the ignored `sites/cloudsterr.db` file. Never enter credentials or secrets into the registration form.
+The server must remain bound to `127.0.0.1`. Milestone 4 has no user authentication and is not approved for network exposure. Registered configuration, discovery results, reviewer names, and approved baselines are stored in the ignored `sites/cloudsterr.db` file. Never enter credentials or secrets into the application.
 
 Stop the server with `Control-C` in its terminal.
 

@@ -5,6 +5,8 @@ const siteForm = document.querySelector("#site-form");
 const formMessage = document.querySelector("#form-message");
 const discoveryResults = document.querySelector("#discovery-results");
 const discoveryPages = document.querySelector("#discovery-pages");
+const baselineForm = document.querySelector("#baseline-form");
+const baselineMessage = document.querySelector("#baseline-message");
 
 function renderSites(sites) {
   rows.replaceChildren();
@@ -30,7 +32,7 @@ function renderSites(sites) {
       <td class="last-check"></td>
       <td class="passed"></td>
       <td class="failed"></td>
-      <td><button class="discover-button" type="button">Discover</button></td>
+      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button></div></td>
     `;
 
     row.querySelector(".site-name").textContent = site.name;
@@ -42,6 +44,10 @@ function renderSites(sites) {
     const discoverButton = row.querySelector(".discover-button");
     discoverButton.dataset.siteId = site.id;
     discoverButton.dataset.siteName = site.name;
+    const reviewButton = row.querySelector(".review-button");
+    reviewButton.dataset.siteId = site.id;
+    reviewButton.dataset.siteName = site.name;
+    reviewButton.disabled = site.status === "BASELINE REQUIRED";
     rows.append(row);
   }
 }
@@ -62,7 +68,7 @@ async function runDiscovery(button) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Discovery failed.");
-    renderDiscovery(data.pages, button.dataset.siteName);
+    renderDiscovery(data.pages, button.dataset.siteName, button.dataset.siteId, data.run_id);
     message.textContent = `Discovery completed: ${data.page_count} permitted page${data.page_count === 1 ? "" : "s"} inventoried. No forms were submitted.`;
     await loadSites();
   } catch (error) {
@@ -73,7 +79,7 @@ async function runDiscovery(button) {
   }
 }
 
-function renderDiscovery(pages, siteName) {
+function renderDiscovery(pages, siteName, siteId, runId) {
   discoveryPages.replaceChildren();
   for (const page of pages) {
     const article = document.createElement("article");
@@ -89,8 +95,60 @@ function renderDiscovery(pages, siteName) {
     discoveryPages.append(article);
   }
   document.querySelector("#discovery-results-title").textContent = `${siteName} discovery inventory`;
+  baselineForm.dataset.siteId = siteId;
+  baselineForm.dataset.runId = runId;
+  baselineForm.reset();
+  baselineMessage.textContent = "";
   discoveryResults.hidden = false;
   discoveryResults.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function reviewDiscovery(button) {
+  message.classList.remove("error");
+  message.textContent = `Loading the latest ${button.dataset.siteName} discovery…`;
+  try {
+    const response = await fetch(`/api/sites/${button.dataset.siteId}/discoveries`, {headers: {Accept: "application/json"}});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Discovery history could not be loaded.");
+    if (data.runs.length === 0) throw new Error("No completed discovery is available for review.");
+    const latest = data.runs[0];
+    renderDiscovery(latest.pages, button.dataset.siteName, button.dataset.siteId, latest.id);
+    message.textContent = "Latest discovery loaded for human review.";
+  } catch (error) {
+    message.classList.add("error");
+    message.textContent = error.message;
+  }
+}
+
+async function approveBaseline(event) {
+  event.preventDefault();
+  const formData = new FormData(baselineForm);
+  const approved = window.confirm("Create an immutable baseline from this discovery inventory?");
+  if (!approved) return;
+  const submitButton = baselineForm.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  baselineMessage.classList.remove("error");
+  baselineMessage.textContent = "Creating the immutable baseline…";
+  try {
+    const response = await fetch(`/api/sites/${baselineForm.dataset.siteId}/baselines`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: JSON.stringify({
+        discovery_run_id: baselineForm.dataset.runId,
+        reviewer: formData.get("reviewer"),
+        approval_confirmed: formData.get("approval_confirmed") === "on",
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Baseline approval failed.");
+    baselineMessage.textContent = `Baseline version ${data.version} approved by ${data.reviewer}.`;
+    await loadSites();
+  } catch (error) {
+    baselineMessage.classList.add("error");
+    baselineMessage.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
+  }
 }
 
 async function loadSites() {
@@ -165,5 +223,8 @@ siteForm.addEventListener("submit", registerSite);
 rows.addEventListener("click", (event) => {
   const button = event.target.closest(".discover-button");
   if (button) runDiscovery(button);
+  const reviewButton = event.target.closest(".review-button");
+  if (reviewButton) reviewDiscovery(reviewButton);
 });
+baselineForm.addEventListener("submit", approveBaseline);
 loadSites();

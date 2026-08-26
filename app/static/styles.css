@@ -215,6 +215,11 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 .discover-button:disabled { cursor: wait; opacity: 0.65; }
 
+.row-actions { display: flex; gap: 0.5rem; }
+.review-button { min-height: 44px; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.5rem 0.75rem; background: var(--surface-strong); color: var(--text); cursor: pointer; font-weight: 750; }
+.review-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.baseline-form { max-width: 680px; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
+
 .section-heading {
   display: flex;
   gap: 1rem;

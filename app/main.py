@@ -63,6 +63,17 @@ class SiteRegistration(BaseModel):
         return list(dict.fromkeys(cleaned))
 
 
+class BaselineApproval(BaseModel):
+    discovery_run_id: str
+    reviewer: str = Field(min_length=2, max_length=120)
+    approval_confirmed: bool
+
+    @field_validator("reviewer")
+    @classmethod
+    def trim_reviewer(cls, value: str) -> str:
+        return value.strip()
+
+
 def database_path() -> Path:
     data_root = Path(os.environ.get("CLOUDSTERR_DATA_DIR", DEFAULT_DATA_ROOT))
     data_root.mkdir(parents=True, exist_ok=True)
@@ -87,6 +98,23 @@ def connect_database() -> sqlite3.Connection:
             excluded_paths TEXT NOT NULL,
             status TEXT NOT NULL,
             created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS baselines (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            discovery_run_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            reviewer TEXT NOT NULL,
+            approved_at TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            UNIQUE(site_id, version),
+            UNIQUE(discovery_run_id),
+            FOREIGN KEY (site_id) REFERENCES sites(id),
+            FOREIGN KEY (discovery_run_id) REFERENCES discovery_runs(id)
         )
         """
     )
@@ -129,7 +157,7 @@ def serialize_site(row: sqlite3.Row) -> dict[str, str | int | None | list[str]]:
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.3.0",
+    version="0.4.0",
 )
 app.add_middleware(
     TrustedHostMiddleware,
@@ -263,6 +291,82 @@ async def list_discoveries(site_id: str) -> dict:
                 "completed_at": row["completed_at"],
                 "page_count": row["page_count"],
                 "pages": json.loads(row["inventory_json"]),
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.post("/api/sites/{site_id}/baselines", tags=["baselines"], status_code=status.HTTP_201_CREATED)
+async def approve_baseline(site_id: str, approval: BaselineApproval) -> dict:
+    if not approval.approval_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Explicit baseline approval is required.",
+        )
+
+    with closing(connect_database()) as connection:
+        run = connection.execute(
+            "SELECT * FROM discovery_runs WHERE id = ? AND site_id = ? AND status = 'COMPLETED'",
+            (approval.discovery_run_id, site_id),
+        ).fetchone()
+        if run is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Completed discovery run not found.")
+        existing = connection.execute(
+            "SELECT id FROM baselines WHERE discovery_run_id = ?",
+            (approval.discovery_run_id,),
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This discovery is already approved.")
+        version = connection.execute(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM baselines WHERE site_id = ?",
+            (site_id,),
+        ).fetchone()[0]
+        baseline_id = str(uuid4())
+        approved_at = datetime.now(UTC).isoformat()
+        connection.execute(
+            """
+            INSERT INTO baselines (
+                id, site_id, discovery_run_id, version, reviewer, approved_at, snapshot_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                baseline_id,
+                site_id,
+                approval.discovery_run_id,
+                version,
+                approval.reviewer,
+                approved_at,
+                run["inventory_json"],
+            ),
+        )
+        connection.execute("UPDATE sites SET status = ? WHERE id = ?", ("HEALTHY", site_id))
+        connection.commit()
+    return {
+        "id": baseline_id,
+        "site_id": site_id,
+        "version": version,
+        "reviewer": approval.reviewer,
+        "approved_at": approved_at,
+        "pages": json.loads(run["inventory_json"]),
+    }
+
+
+@app.get("/api/sites/{site_id}/baselines", tags=["baselines"])
+async def list_baselines(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        rows = connection.execute(
+            "SELECT * FROM baselines WHERE site_id = ? ORDER BY version DESC",
+            (site_id,),
+        ).fetchall()
+    return {
+        "baselines": [
+            {
+                "id": row["id"],
+                "version": row["version"],
+                "reviewer": row["reviewer"],
+                "approved_at": row["approved_at"],
+                "pages": json.loads(row["snapshot_json"]),
             }
             for row in rows
         ]

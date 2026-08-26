@@ -27,7 +27,7 @@
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>Milestone 3 safety boundary:</strong> Discovery makes read-only
+          <strong>Milestone 4 safety boundary:</strong> Discovery makes read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -69,6 +69,12 @@
         <h2 id="discovery-results-title">Discovery inventory</h2>
         <p class="section-copy">Review only. Nothing shown here is approved for execution.</p>
         <div id="discovery-pages"></div>
+        <form id="baseline-form" class="baseline-form">
+          <label>Reviewer name<input name="reviewer" required minlength="2" maxlength="120" autocomplete="name"></label>
+          <label class="confirmation"><input name="approval_confirmed" type="checkbox" required><span>I reviewed this discovery inventory and approve it as the next immutable baseline version.</span></label>
+          <button class="primary-button" type="submit">Approve baseline</button>
+          <p id="baseline-message" class="status-message" aria-live="polite"></p>
+        </form>
       </section>
 
       <section class="registration" aria-labelledby="registration-title">
@@ -99,10 +105,10 @@
 
       <section class="next-step" aria-labelledby="next-step-title">
         <p class="eyebrow">Next milestone</p>
-        <h2 id="next-step-title">Review and approve a baseline</h2>
+        <h2 id="next-step-title">Execute approved safe checks</h2>
         <p>
-          Discovery results are proposals only. Baseline approval, credentials,
-          form execution, scheduling, editing, deletion, and Run Now remain unavailable.
+          Only explicitly approved baseline versions may become executable later.
+          Credentials, form execution, scheduling, editing, deletion, and Run Now remain unavailable.
         </p>
       </section>
     </main>
