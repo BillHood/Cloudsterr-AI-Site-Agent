@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import sqlite3
+import re
 from contextlib import asynccontextmanager, closing, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -81,6 +82,29 @@ class ScheduleConfiguration(BaseModel):
     approval_confirmed: bool
 
 
+class AuthenticationProfile(BaseModel):
+    login_path: str = Field(min_length=1, max_length=500)
+    username_env: str = Field(min_length=3, max_length=64)
+    password_env: str = Field(min_length=3, max_length=64)
+    test_account_confirmed: bool
+
+    @field_validator("login_path")
+    @classmethod
+    def validate_login_path(cls, value: str) -> str:
+        value = value.strip()
+        if not value.startswith("/") or value.startswith("//"):
+            raise ValueError("Login path must be a site-relative path beginning with /")
+        return value
+
+    @field_validator("username_env", "password_env")
+    @classmethod
+    def validate_environment_name(cls, value: str) -> str:
+        value = value.strip()
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", value):
+            raise ValueError("Use an uppercase environment-variable name")
+        return value
+
+
 def database_path() -> Path:
     data_root = Path(os.environ.get("CLOUDSTERR_DATA_DIR", DEFAULT_DATA_ROOT))
     data_root.mkdir(parents=True, exist_ok=True)
@@ -105,6 +129,19 @@ def connect_database() -> sqlite3.Connection:
             excluded_paths TEXT NOT NULL,
             status TEXT NOT NULL,
             created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS authentication_profiles (
+            site_id TEXT PRIMARY KEY,
+            login_path TEXT NOT NULL,
+            username_env TEXT NOT NULL,
+            password_env TEXT NOT NULL,
+            execution_enabled INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id)
         )
         """
     )
@@ -231,7 +268,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.4",
+    version="0.0.5",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -607,3 +644,65 @@ async def configure_schedule(site_id: str, schedule: ScheduleConfiguration) -> d
         )
         connection.commit()
     return {"site_id": site_id, "frequency": schedule.frequency, "enabled": schedule.enabled, "next_run_at": next_run_at}
+
+
+@app.get("/api/sites/{site_id}/authentication", tags=["authentication"])
+async def get_authentication_profile(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        row = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    if row is None:
+        return {"configured": False, "execution_enabled": False}
+    return {
+        "configured": True,
+        "login_path": row["login_path"],
+        "username_env": row["username_env"],
+        "password_env": row["password_env"],
+        "execution_enabled": False,
+    }
+
+
+@app.put("/api/sites/{site_id}/authentication", tags=["authentication"])
+async def configure_authentication_profile(site_id: str, profile: AuthenticationProfile) -> dict:
+    if not profile.test_account_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Confirm that the references belong to a dedicated limited-permission test account.",
+        )
+    if profile.username_env == profile.password_env:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Username and password must use different environment-variable names.",
+        )
+    now = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        allowed = site["allowed_path"].rstrip("/") or "/"
+        if allowed != "/" and profile.login_path != allowed and not profile.login_path.startswith(f"{allowed}/"):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Login path is outside the allowed boundary.")
+        connection.execute(
+            """
+            INSERT INTO authentication_profiles (
+                site_id, login_path, username_env, password_env, execution_enabled, updated_at
+            ) VALUES (?, ?, ?, ?, 0, ?)
+            ON CONFLICT(site_id) DO UPDATE SET
+                login_path = excluded.login_path,
+                username_env = excluded.username_env,
+                password_env = excluded.password_env,
+                execution_enabled = 0,
+                updated_at = excluded.updated_at
+            """,
+            (site_id, profile.login_path, profile.username_env, profile.password_env, now),
+        )
+        connection.commit()
+    return {
+        "configured": True,
+        "login_path": profile.login_path,
+        "username_env": profile.username_env,
+        "password_env": profile.password_env,
+        "execution_enabled": False,
+    }

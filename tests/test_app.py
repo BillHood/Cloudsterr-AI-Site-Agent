@@ -30,7 +30,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.4"}
+    assert response.json() == {"status": "ok", "version": "0.0.5"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -190,9 +190,43 @@ def test_schedule_requires_approval_and_baseline() -> None:
     assert missing_baseline.status_code == 409
 
 
+def test_authentication_profile_stores_references_not_secrets() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    response = client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={
+            "login_path": "/public/login",
+            "username_env": "CLOUDSTERR_TEST_USERNAME",
+            "password_env": "CLOUDSTERR_TEST_PASSWORD",
+            "test_account_confirmed": True,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["execution_enabled"] is False
+    assert "password" not in response.json()
+    stored = client.get(f"/api/sites/{site_id}/authentication")
+    assert stored.json()["password_env"] == "CLOUDSTERR_TEST_PASSWORD"
+
+
+def test_authentication_profile_rejects_secret_like_values_and_missing_confirmation() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    lowercase_value = client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/login", "username_env": "bill@example.com", "password_env": "secret", "test_account_confirmed": True},
+    )
+    assert lowercase_value.status_code == 422
+    missing_confirmation = client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/login", "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD", "test_account_confirmed": False},
+    )
+    assert missing_confirmation.status_code == 422
+
+
 def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.4</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.5</span>" in response.text
     assert "does not start discovery or monitoring" in response.text

@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.4</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.5</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.4 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.5 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -62,6 +62,22 @@
             <tbody id="site-rows"></tbody>
           </table>
         </div>
+      </section>
+
+      <section id="authentication-panel" class="authentication-panel" aria-labelledby="authentication-title" hidden>
+        <p class="eyebrow">Test-account references</p>
+        <h2 id="authentication-title">Authentication</h2>
+        <p class="section-copy">Store environment-variable names only. Never enter a username, password, token, cookie, or secret value here. Authentication execution remains disabled.</p>
+        <form id="authentication-form">
+          <div class="form-grid">
+            <label>Login path<input name="login_path" required value="/login" maxlength="500"></label>
+            <label>Username variable<input name="username_env" required placeholder="CLOUDSTERR_TEST_USERNAME" maxlength="64" autocomplete="off"></label>
+            <label>Password variable<input name="password_env" required placeholder="CLOUDSTERR_TEST_PASSWORD" maxlength="64" autocomplete="off"></label>
+          </div>
+          <label class="confirmation"><input name="test_account_confirmed" type="checkbox" required><span>I confirm these names will reference a dedicated, limited-permission test account—not a personal or administrator account.</span></label>
+          <button class="primary-button" type="submit">Save references</button>
+          <p id="authentication-message" class="status-message" aria-live="polite"></p>
+        </form>
       </section>
 
       <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>
@@ -125,10 +141,10 @@
 
       <section class="next-step" aria-labelledby="next-step-title">
         <p class="eyebrow">Next milestone</p>
-        <h2 id="next-step-title">Add controlled authenticated journeys</h2>
+        <h2 id="next-step-title">Approve a controlled login journey</h2>
         <p>
-          Scheduling is now opt-in for approved read-only baselines. Credentials,
-          form execution, editing, and deletion remain unavailable.
+          Credential references may be configured, but login execution remains disabled.
+          Secret values, unrestricted post-login actions, editing, and deletion remain unavailable.
         </p>
       </section>
     </main>

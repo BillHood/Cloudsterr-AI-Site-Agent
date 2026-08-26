@@ -12,6 +12,9 @@ const runHistoryList = document.querySelector("#run-history-list");
 const schedulePanel = document.querySelector("#schedule-panel");
 const scheduleForm = document.querySelector("#schedule-form");
 const scheduleMessage = document.querySelector("#schedule-message");
+const authenticationPanel = document.querySelector("#authentication-panel");
+const authenticationForm = document.querySelector("#authentication-form");
+const authenticationMessage = document.querySelector("#authentication-message");
 
 function renderSites(sites) {
   rows.replaceChildren();
@@ -37,7 +40,7 @@ function renderSites(sites) {
       <td class="last-check"></td>
       <td class="passed"></td>
       <td class="failed"></td>
-      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button><button class="run-button" type="button">Run now</button><button class="history-button" type="button">History</button><button class="schedule-button" type="button">Schedule</button></div></td>
+      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button><button class="run-button" type="button">Run now</button><button class="history-button" type="button">History</button><button class="schedule-button" type="button">Schedule</button><button class="auth-button" type="button">Auth</button></div></td>
     `;
 
     row.querySelector(".site-name").textContent = site.name;
@@ -65,6 +68,9 @@ function renderSites(sites) {
     scheduleButton.dataset.siteId = site.id;
     scheduleButton.dataset.siteName = site.name;
     scheduleButton.disabled = !["HEALTHY", "NEEDS ATTENTION"].includes(site.status);
+    const authButton = row.querySelector(".auth-button");
+    authButton.dataset.siteId = site.id;
+    authButton.dataset.siteName = site.name;
     rows.append(row);
   }
 }
@@ -281,6 +287,50 @@ async function saveSchedule(event) {
   scheduleMessage.textContent = data.enabled ? `Schedule enabled. Next run: ${new Date(data.next_run_at).toLocaleString()}` : "Schedule disabled. No automatic requests are planned.";
 }
 
+async function openAuthentication(button) {
+  const response = await fetch(`/api/sites/${button.dataset.siteId}/authentication`, {headers: {Accept: "application/json"}});
+  const data = await response.json();
+  if (!response.ok) {
+    message.classList.add("error");
+    message.textContent = data.detail || "Authentication references could not be loaded.";
+    return;
+  }
+  authenticationForm.dataset.siteId = button.dataset.siteId;
+  authenticationForm.dataset.siteName = button.dataset.siteName;
+  authenticationForm.elements.login_path.value = data.login_path || "/login";
+  authenticationForm.elements.username_env.value = data.username_env || "";
+  authenticationForm.elements.password_env.value = data.password_env || "";
+  authenticationForm.elements.test_account_confirmed.checked = false;
+  authenticationMessage.textContent = data.configured ? "References are configured. Login execution is disabled." : "No authentication references are configured.";
+  document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
+  authenticationPanel.hidden = false;
+  authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function saveAuthentication(event) {
+  event.preventDefault();
+  const formData = new FormData(authenticationForm);
+  if (!window.confirm(`Save non-secret test-account references for ${authenticationForm.dataset.siteName}?`)) return;
+  const response = await fetch(`/api/sites/${authenticationForm.dataset.siteId}/authentication`, {
+    method: "PUT",
+    headers: {"Content-Type": "application/json", Accept: "application/json"},
+    body: JSON.stringify({
+      login_path: formData.get("login_path"),
+      username_env: formData.get("username_env"),
+      password_env: formData.get("password_env"),
+      test_account_confirmed: formData.get("test_account_confirmed") === "on",
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    authenticationMessage.classList.add("error");
+    authenticationMessage.textContent = data.detail || "References could not be saved.";
+    return;
+  }
+  authenticationMessage.classList.remove("error");
+  authenticationMessage.textContent = "Non-secret references saved. Login execution remains disabled.";
+}
+
 async function loadSites() {
   refreshButton.disabled = true;
   message.classList.remove("error");
@@ -361,7 +411,10 @@ rows.addEventListener("click", (event) => {
   if (historyButton) loadRunHistory(historyButton);
   const scheduleButton = event.target.closest(".schedule-button");
   if (scheduleButton) openSchedule(scheduleButton);
+  const authButton = event.target.closest(".auth-button");
+  if (authButton) openAuthentication(authButton);
 });
 baselineForm.addEventListener("submit", approveBaseline);
 scheduleForm.addEventListener("submit", saveSchedule);
+authenticationForm.addEventListener("submit", saveAuthentication);
 loadSites();
