@@ -204,7 +204,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .primary-button:hover { filter: brightness(1.08); }
 .primary-button:disabled { cursor: wait; opacity: 0.65; }
 
-.discover-button {
+.discover-button,
+.review-button {
   min-height: 44px;
   border: 1px solid var(--accent);
   border-radius: 0.6rem;
@@ -215,11 +216,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   font-weight: 800;
 }
 
-.discover-button:disabled { cursor: wait; opacity: 0.65; }
+.discover-button:disabled,
+.review-button:disabled { cursor: not-allowed; opacity: 0.45; }
 
 .row-actions { display: flex; gap: 0.5rem; }
-.review-button { min-height: 44px; border: 1px solid var(--border); border-radius: 0.6rem; padding: 0.5rem 0.75rem; background: var(--surface-strong); color: var(--text); cursor: pointer; font-weight: 750; }
-.review-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.run-button { min-height: 44px; border: 1px solid var(--warning); border-radius: 0.6rem; padding: 0.5rem 0.75rem; background: rgba(255, 209, 102, 0.1); color: var(--warning); cursor: pointer; font-weight: 800; }
+.run-button:disabled { cursor: not-allowed; opacity: 0.45; }
 .baseline-form { max-width: 680px; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
 
 .section-heading {

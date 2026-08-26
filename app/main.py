@@ -103,6 +103,26 @@ def connect_database() -> sqlite3.Connection:
     )
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS execution_runs (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            baseline_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            status TEXT NOT NULL,
+            passed INTEGER NOT NULL DEFAULT 0,
+            failed INTEGER NOT NULL DEFAULT 0,
+            details_json TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id),
+            FOREIGN KEY (baseline_id) REFERENCES baselines(id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS one_running_execution_per_site ON execution_runs(site_id) WHERE status = 'RUNNING'"
+    )
+    connection.execute(
+        """
         CREATE TABLE IF NOT EXISTS baselines (
             id TEXT PRIMARY KEY,
             site_id TEXT NOT NULL,
@@ -157,7 +177,7 @@ def serialize_site(row: sqlite3.Row) -> dict[str, str | int | None | list[str]]:
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.1",
+    version="0.0.2",
 )
 app.add_middleware(
     TrustedHostMiddleware,
@@ -190,7 +210,19 @@ async def health() -> dict[str, str]:
 async def list_sites() -> dict[str, list[dict[str, str | int | None | list[str]]]]:
     with closing(connect_database()) as connection:
         rows = connection.execute("SELECT * FROM sites ORDER BY created_at DESC").fetchall()
-    return {"sites": [serialize_site(row) for row in rows]}
+        sites = []
+        for row in rows:
+            item = serialize_site(row)
+            latest = connection.execute(
+                "SELECT completed_at, passed, failed FROM execution_runs WHERE site_id = ? AND status != 'RUNNING' ORDER BY started_at DESC LIMIT 1",
+                (row["id"],),
+            ).fetchone()
+            if latest:
+                item["last_check"] = latest["completed_at"]
+                item["passed"] = latest["passed"]
+                item["failed"] = latest["failed"]
+            sites.append(item)
+    return {"sites": sites}
 
 
 @app.post("/api/sites", tags=["sites"], status_code=status.HTTP_201_CREATED)
@@ -371,3 +403,89 @@ async def list_baselines(site_id: str) -> dict:
             for row in rows
         ]
     }
+
+
+def compare_to_baseline(expected_pages: list[dict], observed_pages: list[dict]) -> list[dict]:
+    observed_by_url = {page["url"].rstrip("/"): page for page in observed_pages}
+    results = []
+    for expected in expected_pages:
+        observed = observed_by_url.get(expected["url"].rstrip("/"))
+        failures = []
+        if observed is None:
+            failures.append("Expected page was not discovered")
+        else:
+            if observed["status_code"] >= 400:
+                failures.append(f"HTTP {observed['status_code']}")
+            if observed["title"] != expected["title"]:
+                failures.append("Page title changed")
+            for key in ("links", "buttons"):
+                missing = sorted(set(expected[key]) - set(observed[key]))
+                if missing:
+                    failures.append(f"Missing {key}: {', '.join(missing[:5])}")
+            expected_forms = {(form["action"], form["method"], tuple(form["fields"])) for form in expected["forms"]}
+            observed_forms = {(form["action"], form["method"], tuple(form["fields"])) for form in observed["forms"]}
+            if expected_forms - observed_forms:
+                failures.append("One or more expected forms changed or disappeared")
+        results.append({"url": expected["url"], "status": "FAIL" if failures else "PASS", "failures": failures})
+    return results
+
+
+@app.post("/api/sites/{site_id}/runs", tags=["execution"])
+async def run_approved_baseline(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        baseline = connection.execute(
+            "SELECT * FROM baselines WHERE site_id = ? ORDER BY version DESC LIMIT 1",
+            (site_id,),
+        ).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        if baseline is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An approved baseline is required.")
+        run_id = str(uuid4())
+        started_at = datetime.now(UTC).isoformat()
+        try:
+            connection.execute(
+                "INSERT INTO execution_runs (id, site_id, baseline_id, started_at, status, details_json) VALUES (?, ?, ?, ?, 'RUNNING', '[]')",
+                (run_id, site_id, baseline["id"], started_at),
+            )
+            connection.execute("UPDATE sites SET status = 'TESTING' WHERE id = ?", (site_id,))
+            connection.commit()
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A run is already in progress.") from error
+
+    boundary = DiscoveryBoundary(
+        base_url=site["base_url"],
+        allowed_path=site["allowed_path"],
+        excluded_paths=tuple(item for item in site["excluded_paths"].split("\n") if item),
+    )
+    try:
+        observed = await discover(boundary)
+        details = compare_to_baseline(json.loads(baseline["snapshot_json"]), observed)
+        passed = sum(item["status"] == "PASS" for item in details)
+        failed = sum(item["status"] == "FAIL" for item in details)
+        run_status = "PASS" if failed == 0 else "FAIL"
+    except Exception as error:
+        details = [{"url": site["base_url"], "status": "BLOCKED", "failures": [type(error).__name__]}]
+        passed, failed, run_status = 0, 1, "BLOCKED"
+
+    completed_at = datetime.now(UTC).isoformat()
+    site_status = "HEALTHY" if run_status == "PASS" else "NEEDS ATTENTION"
+    with closing(connect_database()) as connection:
+        connection.execute(
+            "UPDATE execution_runs SET completed_at = ?, status = ?, passed = ?, failed = ?, details_json = ? WHERE id = ?",
+            (completed_at, run_status, passed, failed, json.dumps(details), run_id),
+        )
+        connection.execute("UPDATE sites SET status = ? WHERE id = ?", (site_status, site_id))
+        connection.commit()
+    return {"run_id": run_id, "status": run_status, "passed": passed, "failed": failed, "details": details}
+
+
+@app.get("/api/sites/{site_id}/runs", tags=["execution"])
+async def list_execution_runs(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        rows = connection.execute(
+            "SELECT * FROM execution_runs WHERE site_id = ? ORDER BY started_at DESC",
+            (site_id,),
+        ).fetchall()
+    return {"runs": [dict(row) | {"details": json.loads(row["details_json"])} for row in rows]}

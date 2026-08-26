@@ -32,7 +32,7 @@ function renderSites(sites) {
       <td class="last-check"></td>
       <td class="passed"></td>
       <td class="failed"></td>
-      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button></div></td>
+      <td><div class="row-actions"><button class="discover-button" type="button">Discover</button><button class="review-button" type="button">Review</button><button class="run-button" type="button">Run now</button></div></td>
     `;
 
     row.querySelector(".site-name").textContent = site.name;
@@ -48,6 +48,10 @@ function renderSites(sites) {
     reviewButton.dataset.siteId = site.id;
     reviewButton.dataset.siteName = site.name;
     reviewButton.disabled = site.status === "BASELINE REQUIRED";
+    const runButton = row.querySelector(".run-button");
+    runButton.dataset.siteId = site.id;
+    runButton.dataset.siteName = site.name;
+    runButton.disabled = !["HEALTHY", "NEEDS ATTENTION"].includes(site.status);
     rows.append(row);
   }
 }
@@ -151,6 +155,27 @@ async function approveBaseline(event) {
   }
 }
 
+async function runBaseline(button) {
+  const approved = window.confirm(`Run the approved read-only baseline for ${button.dataset.siteName}?`);
+  if (!approved) return;
+  button.disabled = true;
+  message.classList.remove("error");
+  message.textContent = `Running approved checks for ${button.dataset.siteName}…`;
+  try {
+    const response = await fetch(`/api/sites/${button.dataset.siteId}/runs`, {method: "POST", headers: {Accept: "application/json"}});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Run failed.");
+    message.classList.toggle("error", data.failed > 0);
+    message.textContent = `Run ${data.status}: ${data.passed} passed, ${data.failed} failed.`;
+    await loadSites();
+  } catch (error) {
+    message.classList.add("error");
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadSites() {
   refreshButton.disabled = true;
   message.classList.remove("error");
@@ -225,6 +250,8 @@ rows.addEventListener("click", (event) => {
   if (button) runDiscovery(button);
   const reviewButton = event.target.closest(".review-button");
   if (reviewButton) reviewDiscovery(reviewButton);
+  const runButton = event.target.closest(".run-button");
+  if (runButton) runBaseline(runButton);
 });
 baselineForm.addEventListener("submit", approveBaseline);
 loadSites();

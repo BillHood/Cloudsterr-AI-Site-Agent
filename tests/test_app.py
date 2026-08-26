@@ -30,7 +30,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.1"}
+    assert response.json() == {"status": "ok", "version": "0.0.2"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -137,6 +137,13 @@ def test_discovery_records_inventory_without_form_execution(monkeypatch) -> None
     baselines = client.get(f"/api/sites/{site_id}/baselines")
     assert baselines.json()["baselines"][0]["pages"][0]["title"] == "Demo"
 
+    execution = client.post(f"/api/sites/{site_id}/runs")
+    assert execution.status_code == 200
+    assert execution.json()["status"] == "PASS"
+    assert execution.json()["passed"] == 1
+    history = client.get(f"/api/sites/{site_id}/runs")
+    assert history.json()["runs"][0]["status"] == "PASS"
+
 
 def test_baseline_requires_explicit_approval(monkeypatch) -> None:
     created = client.post("/api/sites", json=registration_payload())
@@ -154,9 +161,15 @@ def test_baseline_requires_explicit_approval(monkeypatch) -> None:
     assert response.status_code == 422
 
 
+def test_run_requires_approved_baseline() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    response = client.post(f"/api/sites/{created.json()['id']}/runs")
+    assert response.status_code == 409
+
+
 def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.1</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.2</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
