@@ -12,7 +12,7 @@ The product cycle is:
 
 ## Repository status
 
-This repository currently contains the approved product design and repository foundation only. Application code, dependencies, database files, browser automation, scheduling, and deployment have not been created yet.
+Milestone 1 provides a local-only dashboard shell and health API. It displays demonstration data and intentionally performs no external website checks. Database storage, browser automation, scheduling, authentication, and deployment have not been created yet.
 
 ## Safety boundary
 
@@ -31,7 +31,33 @@ The proposed Version 1 architecture is:
 - Scheduling: application-level scheduler
 - Evidence storage: isolated local run directories
 
-These are design recommendations, not yet installed or implemented decisions. Dependency versions, directory structure, authentication model, scheduler choice, and deployment target must be approved before scaffolding.
+Milestone 1 implements the plain frontend and FastAPI application shell. The remaining architecture is still a design recommendation rather than an installed capability.
+
+## Local startup
+
+Requirements:
+
+- Python 3.13
+- A local virtual environment
+
+From the repository root:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8127
+```
+
+Open <http://127.0.0.1:8127/>. The health check is available at <http://127.0.0.1:8127/api/health>.
+
+Stop the server with `Control-C` in its terminal.
+
+Run the automated checks with:
+
+```sh
+python -m pytest
+```
 
 ## Product design
 

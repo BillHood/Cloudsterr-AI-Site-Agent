@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Cloudsterr AI Site Agent local dashboard">
+    <title>Cloudsterr AI Site Agent</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="site-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <span>Cloudsterr</span>
+      </div>
+      <div class="local-badge">Local preview</div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow">AI Site Agent</p>
+        <h1 id="hero-title">Know whether your website actually works.</h1>
+        <p class="hero-copy">
+          Cloudsterr will exercise approved user journeys, preserve evidence,
+          and show which website needs attention.
+        </p>
+        <div class="boundary" role="note">
+          <strong>Milestone 1 safety boundary:</strong> This local preview does
+          not visit, test, or transmit information to any external website.
+        </div>
+      </section>
+
+      <section class="dashboard" aria-labelledby="dashboard-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Monitoring overview</p>
+            <h2 id="dashboard-title">Sites</h2>
+          </div>
+          <button id="refresh-button" class="secondary-button" type="button">
+            Refresh local data
+          </button>
+        </div>
+
+        <p id="dashboard-message" class="status-message" aria-live="polite">
+          Loading local demonstration data…
+        </p>
+        <div class="table-wrap" tabindex="0" aria-label="Monitored sites table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Site</th>
+                <th scope="col">Status</th>
+                <th scope="col">Last check</th>
+                <th scope="col">Passed</th>
+                <th scope="col">Failed</th>
+                <th scope="col">Action</th>
+              </tr>
+            </thead>
+            <tbody id="site-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="next-step" aria-labelledby="next-step-title">
+        <p class="eyebrow">Next milestone</p>
+        <h2 id="next-step-title">Approve a real site boundary</h2>
+        <p>
+          Site registration, persistent storage, discovery, browser automation,
+          and Run Now remain intentionally unavailable until their controls are defined.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>Cloudsterr AI Site Agent · Local development preview</p>
+    </footer>
+  </body>
+</html>
