@@ -26,7 +26,7 @@ body {
   line-height: 1.6;
 }
 
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
 
 button:focus-visible,
 a:focus-visible,
@@ -128,6 +128,7 @@ h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.5rem); }
 }
 
 .dashboard,
+.registration,
 .next-step {
   margin-bottom: 2rem;
   border: 1px solid var(--border);
@@ -137,6 +138,63 @@ h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.5rem); }
 }
 
 .dashboard { padding: clamp(1.1rem, 3vw, 2rem); }
+
+.registration {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: clamp(1.5rem, 5vw, 4rem);
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+.section-copy { color: var(--muted); }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+label { display: grid; gap: 0.35rem; margin-bottom: 1rem; font-weight: 750; }
+
+input, select, textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: #091827;
+  color: var(--text);
+}
+
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.field-help { color: var(--muted); font-size: 0.78rem; font-weight: 500; }
+
+.confirmation {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.7rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.confirmation input { width: 1.2rem; height: 1.2rem; margin-top: 0.2rem; }
+
+.primary-button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 0.65rem;
+  padding: 0.65rem 1rem;
+  background: var(--accent);
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.primary-button:hover { filter: brightness(1.08); }
+.primary-button:disabled { cursor: wait; opacity: 0.65; }
 
 .section-heading {
   display: flex;
@@ -169,6 +227,7 @@ table { width: 100%; min-width: 760px; border-collapse: collapse; }
 th, td { padding: 0.9rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; }
 tbody tr:last-child td { border-bottom: 0; }
+.empty-state { padding: 2rem 1rem; color: var(--muted); text-align: center; }
 
 .site-name { font-weight: 800; }
 .site-environment { display: block; color: var(--muted); font-size: 0.86rem; }
@@ -200,6 +259,7 @@ footer {
   .hero { padding-top: 3.5rem; }
   .section-heading { align-items: stretch; flex-direction: column; }
   .secondary-button { width: 100%; }
+  .registration, .form-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

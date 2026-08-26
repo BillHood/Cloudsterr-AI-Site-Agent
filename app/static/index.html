@@ -27,8 +27,9 @@
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>Milestone 1 safety boundary:</strong> This local preview does
-          not visit, test, or transmit information to any external website.
+          <strong>Milestone 2 safety boundary:</strong> Registration stores
+          configuration locally. Cloudsterr does not visit, test, or transmit
+          information to a registered website yet.
         </div>
       </section>
 
@@ -63,11 +64,37 @@
         </div>
       </section>
 
+      <section class="registration" aria-labelledby="registration-title">
+        <div>
+          <p class="eyebrow">Authorized scope</p>
+          <h2 id="registration-title">Register a site</h2>
+          <p class="section-copy">
+            Registration records a proposed boundary only. It does not start discovery or monitoring.
+            Do not enter passwords, API keys, or other secrets.
+          </p>
+        </div>
+
+        <form id="site-form">
+          <div class="form-grid">
+            <label>Site name<input name="name" required minlength="2" maxlength="100" autocomplete="off"></label>
+            <label>Base URL<input name="base_url" type="url" required placeholder="https://example.com" autocomplete="url"></label>
+            <label>Environment<select name="environment" required><option value="Development">Development</option><option value="Staging">Staging</option><option value="Production">Production</option><option value="Other">Other</option></select></label>
+            <label>Responsible owner<input name="owner" required minlength="2" maxlength="120" autocomplete="organization"></label>
+            <label>Allowed path<input name="allowed_path" required value="/" maxlength="500" aria-describedby="allowed-path-help"><span id="allowed-path-help" class="field-help">Must begin with /</span></label>
+            <label>Excluded paths<input name="excluded_paths" maxlength="1000" placeholder="/admin, /checkout" aria-describedby="excluded-paths-help"><span id="excluded-paths-help" class="field-help">Optional, comma-separated; each must begin with /</span></label>
+          </div>
+          <label>Description<textarea name="description" maxlength="500" rows="3"></textarea></label>
+          <label class="confirmation"><input name="authorization_confirmed" type="checkbox" required><span>I confirm that I own or operate this site, or have explicit authorization to register it for automated functional testing.</span></label>
+          <button class="primary-button" type="submit">Register local configuration</button>
+          <p id="form-message" class="status-message" aria-live="polite"></p>
+        </form>
+      </section>
+
       <section class="next-step" aria-labelledby="next-step-title">
         <p class="eyebrow">Next milestone</p>
-        <h2 id="next-step-title">Approve a real site boundary</h2>
+        <h2 id="next-step-title">Discover without crossing the boundary</h2>
         <p>
-          Site registration, persistent storage, discovery, browser automation,
+          Discovery, browser automation, credentials, scheduling, editing, deletion,
           and Run Now remain intentionally unavailable until their controls are defined.
         </p>
       </section>

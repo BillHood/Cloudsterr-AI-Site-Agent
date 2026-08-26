@@ -12,7 +12,7 @@ The product cycle is:
 
 ## Repository status
 
-Milestone 1 provides a local-only dashboard shell and health API. It displays demonstration data and intentionally performs no external website checks. Database storage, browser automation, scheduling, authentication, and deployment have not been created yet.
+Milestone 2 provides a local-only dashboard, health API, authorized site-registration form, and SQLite persistence. Registration stores configuration but performs no external website checks. Browser automation, scheduling, authentication, and deployment have not been created yet.
 
 ## Safety boundary
 
@@ -31,7 +31,7 @@ The proposed Version 1 architecture is:
 - Scheduling: application-level scheduler
 - Evidence storage: isolated local run directories
 
-Milestone 1 implements the plain frontend and FastAPI application shell. The remaining architecture is still a design recommendation rather than an installed capability.
+Milestone 2 implements the plain frontend, FastAPI application shell, and local SQLite site registry. The remaining architecture is still a design recommendation rather than an installed capability.
 
 ## Local startup
 
@@ -50,6 +50,8 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8127
 ```
 
 Open <http://127.0.0.1:8127/>. The health check is available at <http://127.0.0.1:8127/api/health>.
+
+The server must remain bound to `127.0.0.1`. Milestone 2 has no user authentication and is not approved for network exposure. Registered configuration is stored in the ignored `sites/cloudsterr.db` file. Never enter credentials or secrets into the registration form.
 
 Stop the server with `Control-C` in its terminal.
 
