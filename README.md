@@ -1,5 +1,7 @@
 # Cloudsterr-AI-Site-Agent
 
+Current application version: `v0.0.1`. Subsequent releases increment the patch number sequentially.
+
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
 It is not merely an uptime monitor. Its central question is:

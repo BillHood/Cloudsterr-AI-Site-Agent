@@ -100,6 +100,8 @@ main {
   text-transform: uppercase;
 }
 
+.version { color: var(--muted); letter-spacing: 0.04em; }
+
 h1, h2 { line-height: 1.08; }
 
 h1 {

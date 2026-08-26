@@ -157,7 +157,7 @@ def serialize_site(row: sqlite3.Row) -> dict[str, str | int | None | list[str]]:
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.4.0",
+    version="0.0.1",
 )
 app.add_middleware(
     TrustedHostMiddleware,
