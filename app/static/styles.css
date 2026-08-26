@@ -128,6 +128,7 @@ h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.5rem); }
 }
 
 .dashboard,
+.discovery-results,
 .registration,
 .next-step {
   margin-bottom: 2rem;
@@ -138,6 +139,11 @@ h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.5rem); }
 }
 
 .dashboard { padding: clamp(1.1rem, 3vw, 2rem); }
+
+.discovery-results { padding: clamp(1.5rem, 4vw, 2.5rem); }
+.inventory-card { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; }
+.inventory-card h3 { margin: 0; }
+.inventory-url { overflow-wrap: anywhere; color: var(--accent); }
 
 .registration {
   display: grid;
@@ -195,6 +201,19 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 .primary-button:hover { filter: brightness(1.08); }
 .primary-button:disabled { cursor: wait; opacity: 0.65; }
+
+.discover-button {
+  min-height: 44px;
+  border: 1px solid var(--accent);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(89, 225, 194, 0.1);
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.discover-button:disabled { cursor: wait; opacity: 0.65; }
 
 .section-heading {
   display: flex;

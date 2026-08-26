@@ -27,9 +27,9 @@
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>Milestone 2 safety boundary:</strong> Registration stores
-          configuration locally. Cloudsterr does not visit, test, or transmit
-          information to a registered website yet.
+          <strong>Milestone 3 safety boundary:</strong> Discovery makes read-only
+          GET requests within the approved origin and path. It blocks external
+          origins, excluded paths, form submission, and all non-read methods.
         </div>
       </section>
 
@@ -64,6 +64,13 @@
         </div>
       </section>
 
+      <section id="discovery-results" class="discovery-results" aria-labelledby="discovery-results-title" hidden>
+        <p class="eyebrow">Proposed baseline</p>
+        <h2 id="discovery-results-title">Discovery inventory</h2>
+        <p class="section-copy">Review only. Nothing shown here is approved for execution.</p>
+        <div id="discovery-pages"></div>
+      </section>
+
       <section class="registration" aria-labelledby="registration-title">
         <div>
           <p class="eyebrow">Authorized scope</p>
@@ -92,10 +99,10 @@
 
       <section class="next-step" aria-labelledby="next-step-title">
         <p class="eyebrow">Next milestone</p>
-        <h2 id="next-step-title">Discover without crossing the boundary</h2>
+        <h2 id="next-step-title">Review and approve a baseline</h2>
         <p>
-          Discovery, browser automation, credentials, scheduling, editing, deletion,
-          and Run Now remain intentionally unavailable until their controls are defined.
+          Discovery results are proposals only. Baseline approval, credentials,
+          form execution, scheduling, editing, deletion, and Run Now remain unavailable.
         </p>
       </section>
     </main>

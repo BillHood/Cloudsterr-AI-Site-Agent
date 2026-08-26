@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.discovery import DiscoveryBoundary
 from app.main import app
 
 client = TestClient(app)
@@ -29,7 +30,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.2.0"}
+    assert response.json() == {"status": "ok", "version": "0.3.0"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -79,6 +80,49 @@ def test_registration_rejects_duplicate_base_url() -> None:
     second = client.post("/api/sites", json=registration_payload(name="Duplicate"))
     assert first.status_code == 201
     assert second.status_code == 409
+
+
+def test_boundary_blocks_external_and_excluded_documents() -> None:
+    boundary = DiscoveryBoundary(
+        base_url="https://example.com",
+        allowed_path="/public",
+        excluded_paths=("/public/private",),
+    )
+    assert boundary.permits_document("https://example.com/public")
+    assert boundary.permits_document("https://example.com/public/about")
+    assert not boundary.permits_document("https://example.com/admin")
+    assert not boundary.permits_document("https://example.com/public/private/report")
+    assert not boundary.permits_document("https://other.example/public")
+
+
+def test_discovery_records_inventory_without_form_execution(monkeypatch) -> None:
+    created = client.post(
+        "/api/sites",
+        json=registration_payload(base_url="http://127.0.0.1:8127", allowed_path="/demo-site"),
+    )
+    site_id = created.json()["id"]
+
+    async def fake_discover(boundary):
+        assert boundary.allowed_path == "/demo-site"
+        return [
+            {
+                "url": "http://127.0.0.1:8127/demo-site",
+                "title": "Demo",
+                "status_code": 200,
+                "links": ["/demo-site/about"],
+                "buttons": ["Demonstration button"],
+                "forms": [{"action": "/demo-site/search", "method": "POST", "fields": ["query"]}],
+            }
+        ]
+
+    monkeypatch.setattr("app.main.discover", fake_discover)
+    response = client.post(f"/api/sites/{site_id}/discover")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETED"
+    assert response.json()["page_count"] == 1
+    listed = client.get(f"/api/sites/{site_id}/discoveries")
+    assert listed.json()["runs"][0]["pages"][0]["forms"][0]["method"] == "POST"
 
 
 def test_dashboard_is_served() -> None:

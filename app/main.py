@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
@@ -11,6 +12,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from app.discovery import DiscoveryBoundary, discover
 
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
@@ -87,6 +90,20 @@ def connect_database() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS discovery_runs (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            page_count INTEGER NOT NULL,
+            inventory_json TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id)
+        )
+        """
+    )
     connection.commit()
     return connection
 
@@ -112,7 +129,7 @@ def serialize_site(row: sqlite3.Row) -> dict[str, str | int | None | list[str]]:
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.2.0",
+    version="0.3.0",
 )
 app.add_middleware(
     TrustedHostMiddleware,
@@ -124,6 +141,16 @@ app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
 @app.get("/", include_in_schema=False)
 async def dashboard() -> FileResponse:
     return FileResponse(STATIC_ROOT / "index.html")
+
+
+@app.get("/demo-site", include_in_schema=False)
+async def demonstration_site() -> FileResponse:
+    return FileResponse(STATIC_ROOT / "demo-site.html")
+
+
+@app.get("/demo-site/about", include_in_schema=False)
+async def demonstration_about() -> FileResponse:
+    return FileResponse(STATIC_ROOT / "demo-about.html")
 
 
 @app.get("/api/health", tags=["system"])
@@ -178,3 +205,65 @@ async def register_site(site: SiteRegistration) -> dict[str, str | int | None | 
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This base URL is already registered.") from error
 
     return serialize_site(row)
+
+
+@app.post("/api/sites/{site_id}/discover", tags=["discovery"])
+async def discover_site(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+
+    boundary = DiscoveryBoundary(
+        base_url=site["base_url"],
+        allowed_path=site["allowed_path"],
+        excluded_paths=tuple(item for item in site["excluded_paths"].split("\n") if item),
+    )
+    started_at = datetime.now(UTC).isoformat()
+    try:
+        pages = await discover(boundary)
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Read-only discovery failed: {type(error).__name__}",
+        ) from error
+    if not pages:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Discovery returned no permitted pages.")
+
+    completed_at = datetime.now(UTC).isoformat()
+    run_id = str(uuid4())
+    with closing(connect_database()) as connection:
+        connection.execute(
+            """
+            INSERT INTO discovery_runs (
+                id, site_id, started_at, completed_at, status, page_count, inventory_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (run_id, site_id, started_at, completed_at, "COMPLETED", len(pages), json.dumps(pages)),
+        )
+        connection.execute("UPDATE sites SET status = ? WHERE id = ?", ("BASELINE REVIEW", site_id))
+        connection.commit()
+
+    return {"run_id": run_id, "status": "COMPLETED", "page_count": len(pages), "pages": pages}
+
+
+@app.get("/api/sites/{site_id}/discoveries", tags=["discovery"])
+async def list_discoveries(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        rows = connection.execute(
+            "SELECT * FROM discovery_runs WHERE site_id = ? ORDER BY started_at DESC",
+            (site_id,),
+        ).fetchall()
+    return {
+        "runs": [
+            {
+                "id": row["id"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "page_count": row["page_count"],
+                "pages": json.loads(row["inventory_json"]),
+            }
+            for row in rows
+        ]
+    }

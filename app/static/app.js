@@ -3,6 +3,8 @@ const message = document.querySelector("#dashboard-message");
 const refreshButton = document.querySelector("#refresh-button");
 const siteForm = document.querySelector("#site-form");
 const formMessage = document.querySelector("#form-message");
+const discoveryResults = document.querySelector("#discovery-results");
+const discoveryPages = document.querySelector("#discovery-pages");
 
 function renderSites(sites) {
   rows.replaceChildren();
@@ -28,7 +30,7 @@ function renderSites(sites) {
       <td class="last-check"></td>
       <td class="passed"></td>
       <td class="failed"></td>
-      <td><button class="disabled-button" type="button" disabled title="Available in a later milestone">Run now</button></td>
+      <td><button class="discover-button" type="button">Discover</button></td>
     `;
 
     row.querySelector(".site-name").textContent = site.name;
@@ -37,8 +39,58 @@ function renderSites(sites) {
     row.querySelector(".last-check").textContent = lastCheck;
     row.querySelector(".passed").textContent = site.passed;
     row.querySelector(".failed").textContent = site.failed;
+    const discoverButton = row.querySelector(".discover-button");
+    discoverButton.dataset.siteId = site.id;
+    discoverButton.dataset.siteName = site.name;
     rows.append(row);
   }
+}
+
+async function runDiscovery(button) {
+  const approved = window.confirm(
+    `Start read-only discovery for ${button.dataset.siteName}? Cloudsterr will make GET requests only within its saved boundary.`,
+  );
+  if (!approved) return;
+
+  button.disabled = true;
+  message.classList.remove("error");
+  message.textContent = `Discovering ${button.dataset.siteName} within its approved boundary…`;
+  try {
+    const response = await fetch(`/api/sites/${button.dataset.siteId}/discover`, {
+      method: "POST",
+      headers: {Accept: "application/json"},
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Discovery failed.");
+    renderDiscovery(data.pages, button.dataset.siteName);
+    message.textContent = `Discovery completed: ${data.page_count} permitted page${data.page_count === 1 ? "" : "s"} inventoried. No forms were submitted.`;
+    await loadSites();
+  } catch (error) {
+    message.classList.add("error");
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderDiscovery(pages, siteName) {
+  discoveryPages.replaceChildren();
+  for (const page of pages) {
+    const article = document.createElement("article");
+    article.className = "inventory-card";
+    const heading = document.createElement("h3");
+    heading.textContent = page.title || "Untitled page";
+    const url = document.createElement("p");
+    url.className = "inventory-url";
+    url.textContent = page.url;
+    const summary = document.createElement("p");
+    summary.textContent = `${page.links.length} links · ${page.buttons.length} buttons · ${page.forms.length} forms`;
+    article.append(heading, url, summary);
+    discoveryPages.append(article);
+  }
+  document.querySelector("#discovery-results-title").textContent = `${siteName} discovery inventory`;
+  discoveryResults.hidden = false;
+  discoveryResults.scrollIntoView({behavior: "smooth", block: "start"});
 }
 
 async function loadSites() {
@@ -110,4 +162,8 @@ async function registerSite(event) {
 
 refreshButton.addEventListener("click", loadSites);
 siteForm.addEventListener("submit", registerSite);
+rows.addEventListener("click", (event) => {
+  const button = event.target.closest(".discover-button");
+  if (button) runDiscovery(button);
+});
 loadSites();
