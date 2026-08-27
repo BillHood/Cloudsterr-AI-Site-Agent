@@ -174,6 +174,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
         stage = "BROWSER_STARTED"
         blocked_requests: list[dict] = []
         auth_responses: list[dict] = []
+        inventory_navigation_matches = None
 
         def record_auth_response(response) -> None:
             if response.request.method == "POST" and login.permits_auth_submission(response.url):
@@ -233,20 +234,17 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             shell_matches = shell_checks is None or all(shell_checks.values())
             success_evidence_matches = path_matches and (login.success_mode == "exact_path" or bool(text_matches)) and shell_matches
             control_inventory = None
-            inventory_navigation_matches = None
             if collect_control_inventory and success_evidence_matches:
-                if login.inventory_navigation_selector and login.inventory_destination_path:
-                    navigation_control = page.locator(login.inventory_navigation_selector).nth(login.inventory_navigation_index)
-                    await navigation_control.click(timeout=5_000)
-                    stage = "INVENTORY_NAVIGATION_CLICKED"
-                    await page.wait_for_url(
-                        lambda url: (
-                            login.permitted_url(str(url))
-                            and urlparse(str(url)).path.rstrip("/") == login.inventory_destination_path.rstrip("/")
-                        ),
-                        wait_until="domcontentloaded",
-                        timeout=10_000,
+                if login.inventory_destination_path:
+                    inventory_navigation_matches = False
+                    destination_url = urljoin(
+                        f"{login.base_url.rstrip('/')}/",
+                        login.inventory_destination_path.lstrip("/"),
                     )
+                    if not login.permitted_url(destination_url):
+                        raise RuntimeError("Approved inventory destination is outside the permitted boundary")
+                    stage = "INVENTORY_DESTINATION_REQUESTED"
+                    await page.goto(destination_url, wait_until="domcontentloaded", timeout=10_000)
                     inventory_navigation_matches = (
                         login.permitted_url(page.url)
                         and urlparse(page.url).path.rstrip("/") == login.inventory_destination_path.rstrip("/")
@@ -317,6 +315,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "blocked_requests": blocked_requests[:20],
                 "auth_responses": auth_responses[:5],
+                "inventory_navigation_matches": inventory_navigation_matches,
             }
         finally:
             await context.close()

@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.22`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.23`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.22 adds an explicitly approved post-login inventory navigation step. It clicks one configured control by exact selector and zero-based index, requires the exact approved same-origin destination path, then records sanitized structural metadata. It submits no chat message and captures no page text, screenshots, field values, credentials, or tokens.
+Version 0.0.23 replaces positional post-login clicking with one direct GET to the exact approved same-origin inventory path. It requires that exact destination before recording sanitized structural metadata. It submits no chat message and captures no page text, screenshots, field values, credentials, or tokens.
 
 ## Safety boundary
 
