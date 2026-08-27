@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.26"}
+    assert response.json() == {"status": "ok", "version": "0.0.27"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -228,6 +228,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
             "inventory_navigation_index": 2,
             "inventory_destination_path": "/public/fred",
             "firestore_listen_enabled": True,
+            "firestore_listen_get_enabled": True,
             "approval_confirmed": True,
         },
     )
@@ -244,6 +245,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     assert stored_journey.json()["inventory_navigation_index"] == 2
     assert stored_journey.json()["inventory_destination_path"] == "/public/fred"
     assert stored_journey.json()["firestore_listen_enabled"] is True
+    assert stored_journey.json()["firestore_listen_get_enabled"] is True
 
     monkeypatch.setenv("CLOUDSTERR_TEST_USERNAME", "test-user-value")
     monkeypatch.setenv("CLOUDSTERR_TEST_PASSWORD", "test-password-value")
@@ -305,7 +307,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.26</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.27</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 

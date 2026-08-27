@@ -123,6 +123,7 @@ class LoginJourney(BaseModel):
     inventory_navigation_index: int = Field(default=0, ge=0, le=20)
     inventory_destination_path: str = Field(default="", max_length=500)
     firestore_listen_enabled: bool = False
+    firestore_listen_get_enabled: bool = False
     approval_confirmed: bool
 
     @field_validator("username_selector", "password_selector", "submit_selector", "success_text", "main_selector", "heading_selector", "navigation_selector", "inventory_navigation_selector")
@@ -183,6 +184,7 @@ LOGIN_DEFINITION_FIELDS = (
     "navigation_selector", "external_auth_url", "external_followup_url",
     "inventory_navigation_selector", "inventory_navigation_index", "inventory_destination_path",
     "firestore_listen_enabled",
+    "firestore_listen_get_enabled",
 )
 
 
@@ -190,7 +192,7 @@ def login_definition(source) -> dict:
     definition = {}
     for field in LOGIN_DEFINITION_FIELDS:
         value = source[field] if isinstance(source, sqlite3.Row) else getattr(source, field)
-        if field in {"authenticated_shell_check", "firestore_listen_enabled"}:
+        if field in {"authenticated_shell_check", "firestore_listen_enabled", "firestore_listen_get_enabled"}:
             value = bool(value)
         if field in {"external_auth_url", "external_followup_url"}:
             value = str(value) if value else None
@@ -262,6 +264,7 @@ def connect_database() -> sqlite3.Connection:
             inventory_navigation_index INTEGER NOT NULL DEFAULT 0,
             inventory_destination_path TEXT NOT NULL DEFAULT '',
             firestore_listen_enabled INTEGER NOT NULL DEFAULT 0,
+            firestore_listen_get_enabled INTEGER NOT NULL DEFAULT 0,
             approved_at TEXT NOT NULL,
             execution_enabled INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (site_id) REFERENCES sites(id),
@@ -292,6 +295,8 @@ def connect_database() -> sqlite3.Connection:
         connection.execute("ALTER TABLE login_journeys ADD COLUMN inventory_destination_path TEXT NOT NULL DEFAULT ''")
     if "firestore_listen_enabled" not in login_journey_columns:
         connection.execute("ALTER TABLE login_journeys ADD COLUMN firestore_listen_enabled INTEGER NOT NULL DEFAULT 0")
+    if "firestore_listen_get_enabled" not in login_journey_columns:
+        connection.execute("ALTER TABLE login_journeys ADD COLUMN firestore_listen_get_enabled INTEGER NOT NULL DEFAULT 0")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS authentication_profiles (
@@ -456,6 +461,7 @@ def approved_login_from_records(site: sqlite3.Row, profile: sqlite3.Row, interac
         inventory_navigation_index=int(journey.get("inventory_navigation_index", 0)),
         inventory_destination_path=journey.get("inventory_destination_path", ""),
         firestore_listen_enabled=bool(journey.get("firestore_listen_enabled", False)),
+        firestore_listen_get_enabled=bool(journey.get("firestore_listen_get_enabled", False)),
     )
 
 
@@ -497,7 +503,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.26",
+    version="0.0.27",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -968,6 +974,7 @@ async def get_login_journey(site_id: str) -> dict:
         "inventory_navigation_index": row["inventory_navigation_index"],
         "inventory_destination_path": row["inventory_destination_path"],
         "firestore_listen_enabled": bool(row["firestore_listen_enabled"]),
+        "firestore_listen_get_enabled": bool(row["firestore_listen_get_enabled"]),
         "approved_at": row["approved_at"],
         "interaction_definition_id": interaction["id"] if interaction else None,
         "interaction_version": interaction["version"] if interaction else None,
@@ -1026,7 +1033,8 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 external_auth_url, external_followup_url, approved_at, execution_enabled
                 , inventory_navigation_selector, inventory_navigation_index, inventory_destination_path
                 , firestore_listen_enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                , firestore_listen_get_enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
             ON CONFLICT(site_id) DO UPDATE SET
                 username_selector = excluded.username_selector,
                 password_selector = excluded.password_selector,
@@ -1044,6 +1052,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 inventory_navigation_index = excluded.inventory_navigation_index,
                 inventory_destination_path = excluded.inventory_destination_path,
                 firestore_listen_enabled = excluded.firestore_listen_enabled,
+                firestore_listen_get_enabled = excluded.firestore_listen_get_enabled,
                 approved_at = excluded.approved_at,
                 execution_enabled = 0
             """,
@@ -1066,6 +1075,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 journey.inventory_navigation_index,
                 journey.inventory_destination_path,
                 int(journey.firestore_listen_enabled),
+                int(journey.firestore_listen_get_enabled),
             ),
         )
         connection.commit()
@@ -1086,6 +1096,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         "inventory_navigation_index": journey.inventory_navigation_index,
         "inventory_destination_path": journey.inventory_destination_path,
         "firestore_listen_enabled": journey.firestore_listen_enabled,
+        "firestore_listen_get_enabled": journey.firestore_listen_get_enabled,
         "interaction_definition_id": interaction_id,
         "interaction_version": interaction_version,
     }

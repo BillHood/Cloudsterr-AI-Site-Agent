@@ -120,6 +120,7 @@ class ApprovedLogin:
     inventory_navigation_index: int = 0
     inventory_destination_path: str = ""
     firestore_listen_enabled: bool = False
+    firestore_listen_get_enabled: bool = False
 
     @property
     def origin(self) -> str:
@@ -209,6 +210,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             approved_firestore_listen_get = (
                 request.method == "GET"
                 and request.resource_type in {"fetch", "xhr"}
+                and login.firestore_listen_get_enabled
                 and login.permits_firestore_listen(request.url)
             )
             if approved_firestore_listen_get:
