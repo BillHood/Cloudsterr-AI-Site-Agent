@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.37`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.38`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.37 recognizes the correlated Fred response bubble discovered by the completed final attempt. After locating the exact probe and first subsequent `.chat-message.assistant`, it reads that message's `.chat-bubble` whether or not Markdown styling has been applied. The boundary remains inside the correlated assistant message; no new submission authorization is created.
+Version 0.0.38 simplifies the workflow to one explicitly authorized, single-use Fred online check: `Hi Fred, Cloudsterr AI Site Agent - checking in?` PASS requires a new non-empty assistant response correlated to that message in the same browser session. Historical thread persistence and exact response wording are not required. Earlier experimental probe controls are retired from the visible UI while their immutable audit history remains preserved.
 
 ## Safety boundary
 

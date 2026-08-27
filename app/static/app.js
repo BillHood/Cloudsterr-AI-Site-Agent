@@ -32,6 +32,8 @@ const chatProbeRetryButton = document.querySelector("#chat-probe-retry-button");
 const chatProbeRetryMessage = document.querySelector("#chat-probe-retry-message");
 const chatProbeFinalButton = document.querySelector("#chat-probe-final-button");
 const chatProbeFinalMessage = document.querySelector("#chat-probe-final-message");
+const fredOnlineButton = document.querySelector("#fred-online-button");
+const fredOnlineMessage = document.querySelector("#fred-online-message");
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -641,6 +643,30 @@ async function runFixedChatProbeFinal() {
   }
 }
 
+async function runFredOnlineCheck() {
+  const prompt = "Hi Fred, Cloudsterr AI Site Agent - checking in?";
+  if (!window.confirm(`Submit this exact single-use Fred online check?\n\n${prompt}\n\nPASS requires a new assistant response in this browser session.`)) return;
+  fredOnlineButton.disabled = true;
+  fredOnlineMessage.classList.remove("error");
+  fredOnlineMessage.textContent = "Checking the Fred brain and waiting for its same-session response…";
+  try {
+    const response = await fetch(`/api/sites/${chatInventoryButton.dataset.siteId}/fred-online-check-once`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: JSON.stringify({execution_confirmed: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(formatApiError(data, "The Fred online check could not run."));
+    fredOnlineMessage.classList.toggle("error", data.status !== "PASS");
+    fredOnlineMessage.textContent = data.latest_response
+      ? `Fred brain ${data.status}. Response: ${data.latest_response}`
+      : `Fred brain ${data.status}. Message submitted: ${data.chat_message_submitted ? "yes" : "no"}; no same-session response was captured.`;
+  } catch (error) {
+    fredOnlineMessage.classList.add("error");
+    fredOnlineMessage.textContent = error.message;
+  }
+}
+
 async function saveAuthentication(event) {
   event.preventDefault();
   const formData = new FormData(authenticationForm);
@@ -757,4 +783,5 @@ chatProbeButton.addEventListener("click", runFixedChatProbe);
 chatResponseButton.addEventListener("click", captureFixedChatResponse);
 chatProbeRetryButton.addEventListener("click", runFixedChatProbeRetry);
 chatProbeFinalButton.addEventListener("click", runFixedChatProbeFinal);
+fredOnlineButton.addEventListener("click", runFredOnlineCheck);
 loadSites();

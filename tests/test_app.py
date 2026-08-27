@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.37"}
+    assert response.json() == {"status": "ok", "version": "0.0.38"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -309,7 +309,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.37</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.38</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -690,3 +690,18 @@ def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
     assert final_attempt.status_code == 200
     assert final_attempt.json()["probe_version"] == 3
     assert duplicate_final.status_code == 409
+
+    async def fake_online(_approved, _username, _password, collect_control_inventory=False, chat_probe=None, capture_latest_response=False):
+        assert collect_control_inventory is True
+        assert capture_latest_response is True
+        assert chat_probe["message"] == "Hi Fred, Cloudsterr AI Site Agent - checking in?"
+        assert chat_probe["same_session_response_required"] is True
+        return {"status": "PASS", "outcome": "RESPONSE_CAPTURED", "chat_message_submitted": True, "probe_input_cleared": True, "latest_response": "I'm here, Bill.", "response_contains_ready": False, "blocked_requests": [], "auth_responses": []}
+
+    monkeypatch.setattr("app.main.execute_approved_login", fake_online)
+    online = client.post(f"/api/sites/{site_id}/fred-online-check-once", json={"execution_confirmed": True})
+    duplicate_online = client.post(f"/api/sites/{site_id}/fred-online-check-once", json={"execution_confirmed": True})
+    assert online.status_code == 200
+    assert online.json()["probe_version"] == 4
+    assert online.json()["latest_response"] == "I'm here, Bill."
+    assert duplicate_online.status_code == 409

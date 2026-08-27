@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.37</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.38</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.37 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.38 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -125,14 +125,18 @@
         <div class="journey-divider"></div>
         <h3>One-time Fred probe</h3>
         <p class="section-copy">Single-use exact message: <code>Cloudsterr functional check. Please reply with READY.</code> It uses <code>#fred-chat-input</code> and the submit button in that form. The approval is consumed before browser execution and cannot be retried.</p>
-        <button id="chat-probe-button" class="run-button" type="button">Submit exact probe once</button>
-        <p id="chat-probe-message" class="status-message" aria-live="polite">This action may store the message and consume Sahara usage.</p>
-        <button id="chat-response-button" class="run-button" type="button">Capture newest Fred response</button>
-        <p id="chat-response-message" class="status-message" aria-live="polite">Scans chat messages in memory to locate the exact approved probe, then retains only the first subsequent assistant bubble, capped at 300 characters. Earlier messages are not returned or stored.</p>
-        <button id="chat-probe-retry-button" class="run-button" type="button">Run authorized probe retry once</button>
-        <p id="chat-probe-retry-message" class="status-message" aria-live="polite">Single-use retry with bounded Firestore Write backchannel and one same-origin Gemini request.</p>
-        <button id="chat-probe-final-button" class="run-button" type="button">Run corrected final probe once</button>
-        <p id="chat-probe-final-message" class="status-message" aria-live="polite">Fresh single-use approval using the corrected response-wait call. Prior attempts remain consumed.</p>
+        <button id="chat-probe-button" class="run-button" type="button" hidden>Submit exact probe once</button>
+        <p id="chat-probe-message" class="status-message" aria-live="polite" hidden></p>
+        <button id="chat-response-button" class="run-button" type="button" hidden>Capture newest Fred response</button>
+        <p id="chat-response-message" class="status-message" aria-live="polite" hidden></p>
+        <button id="chat-probe-retry-button" class="run-button" type="button" hidden>Run authorized probe retry once</button>
+        <p id="chat-probe-retry-message" class="status-message" aria-live="polite" hidden></p>
+        <button id="chat-probe-final-button" class="run-button" type="button" hidden>Run corrected final probe once</button>
+        <p id="chat-probe-final-message" class="status-message" aria-live="polite" hidden></p>
+        <h3>Fred brain online check</h3>
+        <p class="section-copy">Single-use exact prompt: <code>Hi Fred, Cloudsterr AI Site Agent - checking in?</code> PASS requires a new, non-empty assistant response in the same browser session. Historical thread persistence is not tested.</p>
+        <button id="fred-online-button" class="run-button" type="button">Check Fred brain once</button>
+        <p id="fred-online-message" class="status-message" aria-live="polite">This check submits one real message and may consume Sahara usage.</p>
       </section>
 
       <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>

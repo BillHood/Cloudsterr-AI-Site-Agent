@@ -372,7 +372,7 @@ async def execute_approved_login(
                                 const probeIndex = messages.findIndex(message => message.innerText.includes(probeMessage));
                                 return probeIndex >= 0 && messages.slice(probeIndex + 1).some(message => message.classList.contains('assistant'));
                             }""",
-                            arg="Cloudsterr functional check. Please reply with READY.",
+                            arg=chat_probe["message"],
                             timeout=30_000,
                         )
                     else:
@@ -403,6 +403,7 @@ async def execute_approved_login(
                 response_contains_ready = None
                 response_candidates = None
                 if capture_latest_response:
+                    probe_message = chat_probe["message"] if chat_probe else "Cloudsterr functional check. Please reply with READY."
                     correlated_response = await page.locator(".chat-messages").evaluate(
                         """(container, probeMessage) => {
                             const messages = Array.from(container.querySelectorAll('.chat-message'));
@@ -412,7 +413,7 @@ async def execute_approved_login(
                             const bubble = response?.querySelector('.chat-bubble');
                             return bubble ? bubble.innerText.slice(0, 300) : null;
                         }""",
-                        "Cloudsterr functional check. Please reply with READY.",
+                        probe_message,
                     )
                     if correlated_response is None:
                         raw_candidates = await page.locator(
