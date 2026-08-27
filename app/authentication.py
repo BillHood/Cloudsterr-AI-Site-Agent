@@ -241,12 +241,14 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                     }))"""
                 )
                 control_inventory = sanitize_control_inventory(raw_controls)
-            error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
-            visible_errors = [
-                _redact(item, (username, password))
-                for item in await error_locator.all_inner_texts()
-                if item.strip()
-            ][:5]
+            visible_errors = []
+            if not collect_control_inventory:
+                error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
+                visible_errors = [
+                    _redact(item, (username, password))
+                    for item in await error_locator.all_inner_texts()
+                    if item.strip()
+                ][:5]
             status, outcome = classify_login_result(
                 path_matches=path_matches,
                 text_matches=success_evidence_matches,
