@@ -26,6 +26,8 @@ const chatInventoryMessage = document.querySelector("#chat-inventory-message");
 const chatInventoryEvidence = document.querySelector("#chat-inventory-evidence");
 const chatProbeButton = document.querySelector("#chat-probe-button");
 const chatProbeMessage = document.querySelector("#chat-probe-message");
+const chatResponseButton = document.querySelector("#chat-response-button");
+const chatResponseMessage = document.querySelector("#chat-response-message");
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -564,6 +566,29 @@ async function runFixedChatProbe() {
   }
 }
 
+async function captureFixedChatResponse() {
+  if (!window.confirm("Capture and store only the newest element explicitly marked as an assistant response, capped at 300 characters? No message will be submitted.")) return;
+  chatResponseButton.disabled = true;
+  chatResponseMessage.classList.remove("error");
+  chatResponseMessage.textContent = "Capturing the bounded newest assistant response…";
+  try {
+    const response = await fetch(`/api/sites/${chatInventoryButton.dataset.siteId}/fixed-chat-probe/response`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: JSON.stringify({execution_confirmed: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(formatApiError(data, "Response capture could not run."));
+    chatResponseMessage.classList.toggle("error", data.status !== "PASS");
+    chatResponseMessage.textContent = data.latest_response ? `Captured: ${data.latest_response} · READY found: ${data.response_contains_ready ? "yes" : "no"}` : `Response capture ${data.status}; no marked assistant response was stored.`;
+  } catch (error) {
+    chatResponseMessage.classList.add("error");
+    chatResponseMessage.textContent = error.message;
+  } finally {
+    chatResponseButton.disabled = false;
+  }
+}
+
 async function saveAuthentication(event) {
   event.preventDefault();
   const formData = new FormData(authenticationForm);
@@ -677,4 +702,5 @@ loginJourneyForm.addEventListener("submit", saveLoginJourney);
 loginTestButton.addEventListener("click", runLoginTest);
 chatInventoryButton.addEventListener("click", runChatInventory);
 chatProbeButton.addEventListener("click", runFixedChatProbe);
+chatResponseButton.addEventListener("click", captureFixedChatResponse);
 loadSites();

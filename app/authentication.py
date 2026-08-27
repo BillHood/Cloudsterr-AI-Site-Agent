@@ -20,6 +20,11 @@ def _redact(text: str, secrets: tuple[str, ...]) -> str:
     return sanitized
 
 
+def sanitize_response_text(text: str, secrets: tuple[str, ...]) -> str:
+    sanitized = _redact(text[:300], secrets)
+    return re.sub(r"\b(?=\S{16,}\b)(?=\S*[A-Za-z])(?=\S*\d)\S+", "[REDACTED]", sanitized)
+
+
 def sanitized_request_evidence(url: str, method: str, resource_type: str) -> dict:
     parsed = urlparse(url)
     return {
@@ -190,6 +195,7 @@ async def execute_approved_login(
     password: str,
     collect_control_inventory: bool = False,
     chat_probe: dict | None = None,
+    capture_latest_response: bool = False,
 ) -> dict:
     """Execute exactly one approved login submission and return sanitized evidence."""
     async with async_playwright() as playwright:
@@ -349,6 +355,16 @@ async def execute_approved_login(
                     }))"""
                 )
                 control_inventory = sanitize_control_inventory(raw_controls)
+                latest_response = None
+                response_contains_ready = None
+                if capture_latest_response:
+                    response_locator = page.locator("[data-message-role='assistant'], [data-role='assistant']")
+                    if await response_locator.count() == 0:
+                        raise RuntimeError("No explicitly marked assistant response was found")
+                    response_text = await response_locator.last.evaluate("element => element.innerText.slice(0, 300)")
+                    latest_response = sanitize_response_text(response_text, (username, password))
+                    response_contains_ready = re.search(r"\bREADY\b", latest_response, re.IGNORECASE) is not None
+                    stage = "LATEST_ASSISTANT_RESPONSE_CAPTURED"
             visible_errors = []
             if not collect_control_inventory:
                 error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
@@ -368,6 +384,9 @@ async def execute_approved_login(
             if chat_probe:
                 status = "PASS" if probe_submitted and probe_input_cleared else "FAIL"
                 outcome = "CHAT_PROBE_ACCEPTED" if status == "PASS" else "CHAT_PROBE_NOT_ACCEPTED"
+            if capture_latest_response:
+                status = "PASS" if latest_response else "FAIL"
+                outcome = "EXPECTED_RESPONSE_FOUND" if response_contains_ready else "RESPONSE_CAPTURED"
             return {
                 "status": status,
                 "outcome": outcome,
@@ -380,6 +399,8 @@ async def execute_approved_login(
                 "inventory_navigation_matches": inventory_navigation_matches,
                 "chat_message_submitted": probe_submitted if chat_probe else False,
                 "probe_input_cleared": probe_input_cleared if chat_probe else None,
+                "latest_response": latest_response if capture_latest_response else None,
+                "response_contains_ready": response_contains_ready if capture_latest_response else None,
                 "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],

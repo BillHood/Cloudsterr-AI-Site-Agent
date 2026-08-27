@@ -539,7 +539,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.29",
+    version="0.0.30",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -1366,3 +1366,40 @@ async def run_fixed_chat_probe_once(site_id: str, request: LoginExecutionRequest
         )
         connection.commit()
     return {"run_id": run_id, "probe_version": 1, **evidence}
+
+
+@app.post("/api/sites/{site_id}/fixed-chat-probe/response", tags=["authentication"])
+async def capture_fixed_chat_probe_response(site_id: str, request: LoginExecutionRequest) -> dict:
+    if not request.execution_confirmed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Explicit confirmation is required to capture the newest marked assistant response.")
+    run_id = f"fixed-chat-probe-v1-{site_id}"
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
+        probe_run = connection.execute("SELECT * FROM chat_probe_runs WHERE id = ?", (run_id,)).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    if profile is None or login is None or probe_run is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The one-time probe must be completed before response capture.")
+    username = os.environ.get(profile["username_env"])
+    password = os.environ.get(profile["password_env"])
+    if not username or not password:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configured test credentials are unavailable.")
+    evidence = await execute_approved_login(
+        approved_login_from_records(site, profile, login), username, password,
+        collect_control_inventory=True, capture_latest_response=True,
+    )
+    evidence["page_text_captured"] = evidence.get("latest_response") is not None
+    evidence["chat_message_submitted"] = False
+    if evidence.get("latest_response"):
+        stored_evidence = json.loads(probe_run["evidence_json"])
+        stored_evidence.update({
+            "latest_response": evidence["latest_response"],
+            "response_contains_ready": evidence["response_contains_ready"],
+            "page_text_captured": True,
+        })
+        with closing(connect_database()) as connection:
+            connection.execute("UPDATE chat_probe_runs SET evidence_json = ? WHERE id = ?", (json.dumps(stored_evidence), run_id))
+            connection.commit()
+    return {"run_id": run_id, **evidence}

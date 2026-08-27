@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.29`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.30`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.29 adds one immutable, single-use Fred probe: `Cloudsterr functional check. Please reply with READY.` The database reserves the approval before browser execution, preventing retries or duplicate submissions. Only during that run may the exact Firestore `/Write/channel` carry the approved message and required account/thread metadata. Response text, request and response bodies, headers, queries, credentials, tokens, and session data are not stored.
+Version 0.0.30 adds separately confirmed response verification for the consumed one-time probe. It reads only the last element explicitly marked `data-message-role="assistant"` or `data-role="assistant"`, truncates in the browser to 300 characters, sanitizes identifiers, stores it with the probe evidence, and records whether it contains `READY`. It submits no additional message and reads no user-message or conversation-history selectors.
 
 ## Safety boundary
 

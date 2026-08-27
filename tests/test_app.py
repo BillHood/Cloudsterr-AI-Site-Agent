@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.discovery import DiscoveryBoundary
-from app.authentication import ApprovedLogin, classify_login_result, sanitize_control_inventory, sanitize_evidence, sanitized_request_evidence
+from app.authentication import ApprovedLogin, classify_login_result, sanitize_control_inventory, sanitize_evidence, sanitize_response_text, sanitized_request_evidence
 from app.main import app
 
 client = TestClient(app)
@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.29"}
+    assert response.json() == {"status": "ok", "version": "0.0.30"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -309,7 +309,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.29</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.30</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -526,6 +526,12 @@ def test_historical_evidence_redacts_identifier_like_path_segments() -> None:
     assert "LWP4rPN048gqcH3o1Lr7xROJrcs2" not in str(evidence)
 
 
+def test_response_text_is_capped_and_sanitized() -> None:
+    response = sanitize_response_text("READY account-LWP4rPN048gqcH3o1Lr7xROJrcs2 " + "x" * 400, ())
+    assert response.startswith("READY [REDACTED]")
+    assert len(response) <= 300
+
+
 def test_control_inventory_excludes_text_values_and_redacts_identifier_like_attributes() -> None:
     controls = sanitize_control_inventory([
         {
@@ -638,3 +644,14 @@ def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
     assert first.status_code == 200
     assert first.json()["chat_message_submitted"] is True
     assert second.status_code == 409
+
+    async def fake_response(_approved, _username, _password, collect_control_inventory=False, capture_latest_response=False, **_kwargs):
+        assert collect_control_inventory is True
+        assert capture_latest_response is True
+        return {"status": "PASS", "outcome": "EXPECTED_RESPONSE_FOUND", "latest_response": "READY", "response_contains_ready": True, "blocked_requests": [], "auth_responses": []}
+
+    monkeypatch.setattr("app.main.execute_approved_login", fake_response)
+    captured = client.post(f"/api/sites/{site_id}/fixed-chat-probe/response", json={"execution_confirmed": True})
+    assert captured.status_code == 200
+    assert captured.json()["latest_response"] == "READY"
+    assert captured.json()["chat_message_submitted"] is False

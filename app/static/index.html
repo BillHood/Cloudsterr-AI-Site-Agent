@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.29</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.30</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.29 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.30 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -127,6 +127,8 @@
         <p class="section-copy">Single-use exact message: <code>Cloudsterr functional check. Please reply with READY.</code> It uses <code>#fred-chat-input</code> and the submit button in that form. The approval is consumed before browser execution and cannot be retried.</p>
         <button id="chat-probe-button" class="run-button" type="button">Submit exact probe once</button>
         <p id="chat-probe-message" class="status-message" aria-live="polite">This action may store the message and consume Sahara usage.</p>
+        <button id="chat-response-button" class="run-button" type="button">Capture newest Fred response</button>
+        <p id="chat-response-message" class="status-message" aria-live="polite">Reads only the last element explicitly marked with an assistant data role, capped at 300 characters.</p>
       </section>
 
       <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>
