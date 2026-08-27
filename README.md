@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.10`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.11`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.10 adds sanitized login-stage, visible-error, and blocked-request diagnostics. Credentials, request bodies, cookies, tokens, and URL query strings are never stored, returned, or logged by the application.
+Version 0.0.11 adds explicit approval of one exact external HTTPS authentication endpoint. It permits one login POST to that endpoint while continuing to block analytics, unrelated hosts, other external writes, and unapproved paths. Credentials, request bodies, cookies, tokens, and URL query strings are never stored, returned, or logged by the application.
 
 ## Safety boundary
 

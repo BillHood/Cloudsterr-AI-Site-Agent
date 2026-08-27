@@ -51,6 +51,7 @@ class ApprovedLogin:
     submit_selector: str
     success_path: str
     success_text: str
+    external_auth_url: str | None = None
 
     @property
     def origin(self) -> str:
@@ -66,6 +67,18 @@ class ApprovedLogin:
         if allowed != "/" and path != allowed and not path.startswith(f"{allowed}/"):
             return False
         return not any(path == item or path.startswith(f"{item.rstrip('/')}/") for item in self.excluded_paths)
+
+    def permits_auth_submission(self, url: str) -> bool:
+        if not self.external_auth_url:
+            return False
+        requested = urlparse(url)
+        approved = urlparse(self.external_auth_url)
+        return (
+            requested.scheme == approved.scheme == "https"
+            and requested.hostname == approved.hostname
+            and (requested.port or 443) == (approved.port or 443)
+            and requested.path.rstrip("/") == approved.path.rstrip("/")
+        )
 
 
 async def execute_approved_login(login: ApprovedLogin, username: str, password: str) -> dict:
@@ -85,7 +98,9 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             if request.method in {"GET", "HEAD"} and permitted:
                 await route.continue_()
                 return
-            if request.method == "POST" and request.resource_type == "document" and permitted and not submission_used:
+            approved_document_post = request.resource_type == "document" and permitted
+            approved_external_auth_post = request.resource_type in {"fetch", "xhr"} and login.permits_auth_submission(request.url)
+            if request.method == "POST" and (approved_document_post or approved_external_auth_post) and not submission_used:
                 submission_used = True
                 await route.continue_()
                 return

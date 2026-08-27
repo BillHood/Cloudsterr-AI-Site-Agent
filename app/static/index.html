@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.10</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.11</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.10 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.11 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -87,6 +87,7 @@
             <label>Password selector<input name="password_selector" required placeholder="#password" maxlength="300"></label>
             <label>Submit selector<input name="submit_selector" required placeholder="button[type='submit']" maxlength="300"></label>
             <label>Success path<input name="success_path" required placeholder="/dashboard" maxlength="500"></label>
+            <label>External authentication endpoint (optional)<input name="external_auth_url" type="url" placeholder="https://identity.example/v1/login" maxlength="500" aria-describedby="external-auth-help"><span id="external-auth-help" class="field-help">Approve one exact HTTPS endpoint. Query strings and broad host access are prohibited.</span></label>
           </div>
           <label>Required success text<input name="success_text" required placeholder="Welcome" maxlength="300"></label>
           <label class="confirmation"><input name="approval_confirmed" type="checkbox" required><span>I approve this exact login journey and deterministic success evidence for later controlled testing.</span></label>
