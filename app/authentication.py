@@ -87,6 +87,10 @@ class ApprovedLogin:
     success_path: str
     success_text: str
     success_mode: str = "path_and_text"
+    authenticated_shell_check: bool = False
+    main_selector: str = ""
+    heading_selector: str = ""
+    navigation_selector: str = ""
     external_auth_url: str | None = None
     external_followup_url: str | None = None
 
@@ -193,7 +197,15 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             final_url = page.url
             path_matches = login.success_path_matches(final_url)
             text_matches = None if login.success_mode == "exact_path" else await page.get_by_text(login.success_text, exact=False).count() > 0
-            success_evidence_matches = path_matches and (login.success_mode == "exact_path" or bool(text_matches))
+            shell_checks = None
+            if login.authenticated_shell_check:
+                shell_checks = {
+                    "main_visible": await page.locator(login.main_selector).first.is_visible(),
+                    "heading_visible": await page.locator(login.heading_selector).first.is_visible(),
+                    "navigation_visible": await page.locator(login.navigation_selector).first.is_visible(),
+                }
+            shell_matches = shell_checks is None or all(shell_checks.values())
+            success_evidence_matches = path_matches and (login.success_mode == "exact_path" or bool(text_matches)) and shell_matches
             error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
             visible_errors = [
                 _redact(item, (username, password))
@@ -215,6 +227,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "final_url": _safe_page_url(final_url, login.origin),
                 "path_matches": path_matches,
                 "text_matches": text_matches,
+                "shell_checks": shell_checks,
                 "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],

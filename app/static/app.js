@@ -46,6 +46,9 @@ function renderLoginEvidence(runs) {
     appendEvidenceDetail(card, "Run ID", run.id);
     appendEvidenceDetail(card, "Final path", run.evidence.final_url ? new URL(run.evidence.final_url).pathname : "Not reached");
     appendEvidenceDetail(card, "Approved responses", (run.evidence.auth_responses || []).map((item) => `${item.status} ${item.hostname}${item.path}`).join("; ") || "None");
+    if (run.evidence.shell_checks) {
+      appendEvidenceDetail(card, "Authenticated shell", Object.entries(run.evidence.shell_checks).map(([key, value]) => `${key.replaceAll("_", " ")}: ${value ? "yes" : "no"}`).join("; "));
+    }
     appendEvidenceDetail(card, "Blocked dependencies", (run.evidence.blocked_requests || []).map((item) => `${item.method} ${item.hostname}${item.path}`).join("; ") || "None");
     loginTestEvidence.append(card);
   }
@@ -365,9 +368,10 @@ async function openAuthentication(button) {
   const journey = await journeyResponse.json();
   loginJourneyForm.dataset.siteId = button.dataset.siteId;
   loginJourneyForm.dataset.siteName = button.dataset.siteName;
-  for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text", "success_mode", "external_auth_url", "external_followup_url"]) {
+  for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text", "success_mode", "external_auth_url", "external_followup_url", "main_selector", "heading_selector", "navigation_selector"]) {
     loginJourneyForm.elements[name].value = journey[name] || "";
   }
+  loginJourneyForm.elements.authenticated_shell_check.checked = Boolean(journey.authenticated_shell_check);
   loginJourneyForm.elements.approval_confirmed.checked = false;
   loginJourneyMessage.textContent = journey.configured ? "Login definition approved. Execution remains disabled." : "No login definition is approved.";
   loginTestButton.dataset.siteId = button.dataset.siteId;
@@ -387,6 +391,7 @@ async function saveLoginJourney(event) {
   const payload = Object.fromEntries(formData.entries());
   payload.external_auth_url = payload.external_auth_url || null;
   payload.external_followup_url = payload.external_followup_url || null;
+  payload.authenticated_shell_check = formData.get("authenticated_shell_check") === "on";
   payload.approval_confirmed = formData.get("approval_confirmed") === "on";
   const response = await fetch(`/api/sites/${loginJourneyForm.dataset.siteId}/login-journey`, {
     method: "PUT",

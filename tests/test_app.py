@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.16"}
+    assert response.json() == {"status": "ok", "version": "0.0.17"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -220,6 +220,10 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
             "success_mode": "path_and_text",
             "external_auth_url": "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
             "external_followup_url": "https://identitytoolkit.googleapis.com/v1/accounts:lookup",
+            "authenticated_shell_check": True,
+            "main_selector": "main",
+            "heading_selector": "h1, h2",
+            "navigation_selector": "nav",
             "approval_confirmed": True,
         },
     )
@@ -230,6 +234,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     assert stored_journey.json()["success_mode"] == "path_and_text"
     assert stored_journey.json()["external_auth_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
     assert stored_journey.json()["external_followup_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:lookup"
+    assert stored_journey.json()["authenticated_shell_check"] is True
 
     monkeypatch.setenv("CLOUDSTERR_TEST_USERNAME", "test-user-value")
     monkeypatch.setenv("CLOUDSTERR_TEST_PASSWORD", "test-password-value")
@@ -239,6 +244,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
         assert approved.success_mode == "path_and_text"
         assert approved.external_auth_url == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
         assert approved.external_followup_url == "https://identitytoolkit.googleapis.com/v1/accounts:lookup"
+        assert approved.navigation_selector == "nav"
         assert username == "test-user-value"
         assert password == "test-password-value"
         return {"status": "PASS", "final_url": "https://example.com/public/dashboard", "path_matches": True, "text_matches": True, "submission_count": 1}
@@ -287,7 +293,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.16</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.17</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -355,6 +361,32 @@ def test_exact_path_mode_allows_empty_success_text() -> None:
     )
     assert response.status_code == 200
     assert response.json()["success_mode"] == "exact_path"
+
+
+def test_authenticated_shell_check_requires_all_three_selectors() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/public/login", "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD", "test_account_confirmed": True},
+    )
+    response = client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={
+            "username_selector": "#email",
+            "password_selector": "#password",
+            "submit_selector": "button",
+            "success_path": "/public/dashboard",
+            "success_text": "",
+            "success_mode": "exact_path",
+            "authenticated_shell_check": True,
+            "main_selector": "main",
+            "heading_selector": "h1, h2",
+            "navigation_selector": "",
+            "approval_confirmed": True,
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_login_journey_rejects_broad_or_query_bearing_external_auth_url() -> None:

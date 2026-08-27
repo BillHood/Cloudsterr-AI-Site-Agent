@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.16</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.17</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.16 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.17 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -90,8 +90,12 @@
             <label>Success mode<select name="success_mode"><option value="path_and_text">Exact path and visible text</option><option value="exact_path">Exact path only</option></select></label>
             <label>External authentication endpoint (optional)<input name="external_auth_url" type="url" placeholder="https://identity.example/v1/login" maxlength="500" aria-describedby="external-auth-help"><span id="external-auth-help" class="field-help">Approve one exact HTTPS endpoint. Query strings and broad host access are prohibited.</span></label>
             <label>External post-login endpoint (optional)<input name="external_followup_url" type="url" placeholder="https://identity.example/v1/account" maxlength="500" aria-describedby="external-followup-help"><span id="external-followup-help" class="field-help">Approve one distinct follow-up endpoint. It may be called once after sign-in.</span></label>
+            <label>Main landmark selector<input name="main_selector" placeholder="main" maxlength="300"></label>
+            <label>Primary heading selector<input name="heading_selector" placeholder="h1, h2" maxlength="300"></label>
+            <label>Navigation selector<input name="navigation_selector" placeholder="nav" maxlength="300"></label>
           </div>
           <label>Success text (required only for path-and-text mode)<input name="success_text" placeholder="Welcome" maxlength="300"></label>
+          <label class="confirmation"><input name="authenticated_shell_check" type="checkbox"><span>After login, verify only whether the approved main, heading, and navigation selectors are visible. Do not capture their text or click them.</span></label>
           <label class="confirmation"><input name="approval_confirmed" type="checkbox" required><span>I approve this exact login journey and deterministic success evidence for later controlled testing.</span></label>
           <button class="primary-button" type="submit">Approve login definition</button>
           <p id="login-journey-message" class="status-message" aria-live="polite"></p>
