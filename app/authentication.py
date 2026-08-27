@@ -49,7 +49,11 @@ def sanitized_dom_attribute(value: str | None) -> str | None:
 
 
 def sanitize_control_inventory(items: list[dict]) -> list[dict]:
-    allowed = {"tag", "type", "id", "name", "role", "test_id", "contenteditable"}
+    allowed = {
+        "tag", "type", "id", "name", "role", "test_id", "contenteditable",
+        "classes", "disabled", "visible", "form_id", "parent_tag", "parent_id",
+        "parent_role", "parent_test_id",
+    }
     return [
         {key: sanitized_dom_attribute(str(value)) for key, value in item.items() if key in allowed and value not in (None, "")}
         for item in items[:50]
@@ -237,7 +241,15 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                         name: element.getAttribute('name'),
                         role: element.getAttribute('role'),
                         test_id: element.getAttribute('data-testid'),
-                        contenteditable: element.getAttribute('contenteditable')
+                        contenteditable: element.getAttribute('contenteditable'),
+                        classes: Array.from(element.classList).slice(0, 5).join(' '),
+                        disabled: element.matches(':disabled') ? 'true' : 'false',
+                        visible: element.getClientRects().length > 0 ? 'true' : 'false',
+                        form_id: element.form?.getAttribute('id'),
+                        parent_tag: element.parentElement?.tagName.toLowerCase(),
+                        parent_id: element.parentElement?.getAttribute('id'),
+                        parent_role: element.parentElement?.getAttribute('role'),
+                        parent_test_id: element.parentElement?.getAttribute('data-testid')
                     }))"""
                 )
                 control_inventory = sanitize_control_inventory(raw_controls)

@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.20`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.21`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.20 prepares the Brain Online Probe with a separately confirmed authenticated chat-control inventory. It records only sanitized element attributes for candidate inputs, buttons, and live regions; it submits no chat message and captures no page text, screenshots, values, definitions, credentials, or tokens. Network permissions are unchanged.
+Version 0.0.21 enriches the separately confirmed Brain Online Probe inventory with sanitized structural metadata: limited class tokens, enabled and visible state, form association, and immediate-container attributes. It submits no chat message and captures no page text, screenshots, field values, definitions, credentials, or tokens. Network permissions are unchanged.
 
 ## Safety boundary
 

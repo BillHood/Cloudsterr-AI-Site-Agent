@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.20"}
+    assert response.json() == {"status": "ok", "version": "0.0.21"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -297,7 +297,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.20</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.21</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -486,13 +486,21 @@ def test_control_inventory_excludes_text_values_and_redacts_identifier_like_attr
             "tag": "textarea",
             "id": "chat-input",
             "name": "prompt",
+            "classes": "composer-input rounded",
+            "disabled": "false",
+            "visible": "true",
+            "parent_tag": "form",
             "value": "private message",
             "placeholder": "Ask Fred anything",
             "text": "private response",
         },
         {"tag": "button", "id": "account-LWP4rPN048gqcH3o1Lr7xROJrcs2", "type": "submit"},
     ])
-    assert controls[0] == {"tag": "textarea", "id": "chat-input", "name": "prompt"}
+    assert controls[0] == {
+        "tag": "textarea", "id": "chat-input", "name": "prompt",
+        "classes": "composer-input rounded", "disabled": "false", "visible": "true",
+        "parent_tag": "form",
+    }
     assert controls[1]["id"] == "[REDACTED]"
     assert "private" not in str(controls)
     assert "Fred" not in str(controls)
