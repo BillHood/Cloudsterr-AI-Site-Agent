@@ -19,6 +19,44 @@ const loginJourneyForm = document.querySelector("#login-journey-form");
 const loginJourneyMessage = document.querySelector("#login-journey-message");
 const loginTestButton = document.querySelector("#login-test-button");
 const loginTestMessage = document.querySelector("#login-test-message");
+const loginTestEvidence = document.querySelector("#login-test-evidence");
+
+function appendEvidenceDetail(parent, label, value) {
+  const detail = document.createElement("p");
+  detail.className = "evidence-detail";
+  const strong = document.createElement("strong");
+  strong.textContent = `${label}: `;
+  detail.append(strong, document.createTextNode(value));
+  parent.append(detail);
+}
+
+function renderLoginEvidence(runs) {
+  loginTestEvidence.replaceChildren();
+  if (runs.length === 0) {
+    loginTestEvidence.textContent = "No login tests have been recorded.";
+    return;
+  }
+  for (const run of runs.slice(0, 5)) {
+    const card = document.createElement("article");
+    card.className = `run-card result-${run.status.toLowerCase()}`;
+    const heading = document.createElement("h4");
+    heading.textContent = `${run.status} · ${run.evidence.outcome || "LEGACY RESULT"}`;
+    card.append(heading);
+    appendEvidenceDetail(card, "Time", new Date(run.completed_at).toLocaleString());
+    appendEvidenceDetail(card, "Run ID", run.id);
+    appendEvidenceDetail(card, "Final path", run.evidence.final_url ? new URL(run.evidence.final_url).pathname : "Not reached");
+    appendEvidenceDetail(card, "Approved responses", (run.evidence.auth_responses || []).map((item) => `${item.status} ${item.hostname}${item.path}`).join("; ") || "None");
+    appendEvidenceDetail(card, "Blocked dependencies", (run.evidence.blocked_requests || []).map((item) => `${item.method} ${item.hostname}${item.path}`).join("; ") || "None");
+    loginTestEvidence.append(card);
+  }
+}
+
+async function loadLoginEvidence(siteId) {
+  const response = await fetch(`/api/sites/${siteId}/login-tests`, {headers: {Accept: "application/json"}});
+  const data = await response.json();
+  if (!response.ok) throw new Error(formatApiError(data, "Login evidence could not be loaded."));
+  renderLoginEvidence(data.runs);
+}
 
 function formatApiError(data, fallback) {
   const detail = data?.detail;
@@ -336,6 +374,7 @@ async function openAuthentication(button) {
   loginTestButton.dataset.siteName = button.dataset.siteName;
   loginTestButton.disabled = !(data.configured && journey.configured);
   loginTestMessage.textContent = loginTestButton.disabled ? "Configure references and approve a login definition first." : "Ready for a manually confirmed login test. Credentials will be read from the server environment.";
+  await loadLoginEvidence(button.dataset.siteId);
   document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
   authenticationPanel.hidden = false;
   authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
@@ -379,6 +418,7 @@ async function runLoginTest() {
     if (!response.ok) throw new Error(formatApiError(data, "Login test failed."));
     loginTestMessage.classList.toggle("error", data.status !== "PASS");
     loginTestMessage.textContent = `Login test ${data.status}. No credential values were stored or returned.`;
+    await loadLoginEvidence(loginTestButton.dataset.siteId);
   } catch (error) {
     loginTestMessage.classList.add("error");
     loginTestMessage.textContent = error.message;

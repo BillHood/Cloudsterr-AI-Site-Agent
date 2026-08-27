@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.discovery import DiscoveryBoundary, discover
-from app.authentication import ApprovedLogin, execute_approved_login
+from app.authentication import ApprovedLogin, execute_approved_login, sanitize_evidence
 
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
@@ -358,7 +358,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.15",
+    version="0.0.16",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -949,7 +949,7 @@ async def list_login_tests(site_id: str) -> dict:
                 "started_at": row["started_at"],
                 "completed_at": row["completed_at"],
                 "status": row["status"],
-                "evidence": json.loads(row["evidence_json"]),
+                "evidence": sanitize_evidence(json.loads(row["evidence_json"])),
             }
             for row in rows
         ]

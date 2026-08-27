@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.15</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.16</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.15 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.16 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -98,6 +98,10 @@
         </form>
         <button id="login-test-button" class="run-button" type="button" disabled>Test approved login</button>
         <p id="login-test-message" class="status-message" aria-live="polite">Configure references and approve a login definition first.</p>
+        <div class="journey-divider"></div>
+        <h3>Login test evidence</h3>
+        <p class="section-copy">Sanitized results only. Credentials, tokens, headers, bodies, queries, and identifier-like path segments are excluded.</p>
+        <div id="login-test-evidence" aria-live="polite"></div>
       </section>
 
       <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>

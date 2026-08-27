@@ -25,9 +25,28 @@ def sanitized_request_evidence(url: str, method: str, resource_type: str) -> dic
     return {
         "method": method,
         "hostname": parsed.hostname or "unknown",
-        "path": parsed.path or "/",
+        "path": sanitized_path(parsed.path or "/"),
         "resource_type": resource_type,
     }
+
+
+def sanitized_path(path: str) -> str:
+    segments = path.split("/")
+    cleaned = [
+        "[REDACTED]" if len(segment) >= 16 and re.search(r"[A-Za-z]", segment) and re.search(r"\d", segment) else segment
+        for segment in segments
+    ]
+    return "/".join(cleaned)
+
+
+def sanitize_evidence(evidence: dict) -> dict:
+    sanitized = dict(evidence)
+    for key in ("blocked_requests", "auth_responses"):
+        sanitized[key] = [
+            {**item, "path": sanitized_path(item.get("path", "/"))}
+            for item in evidence.get(key, [])
+        ]
+    return sanitized
 
 
 def classify_login_result(
@@ -133,7 +152,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                     {
                         "status": response.status,
                         "hostname": parsed.hostname or "unknown",
-                        "path": parsed.path or "/",
+                        "path": sanitized_path(parsed.path or "/"),
                     }
                 )
 

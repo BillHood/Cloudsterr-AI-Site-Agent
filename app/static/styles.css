@@ -235,6 +235,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .run-card h3 { margin: 0; }
 .run-timing { color: var(--muted); }
 .result-detail { margin-top: 0.65rem; border-left: 3px solid var(--accent); padding: 0.45rem 0.7rem; overflow-wrap: anywhere; }
+.evidence-detail { margin: 0.55rem 0 0; overflow-wrap: anywhere; color: var(--muted); }
+.result-pass { border-color: var(--accent); }
 .result-fail, .result-blocked { border-color: #ff8f8f; }
 .baseline-form { max-width: 680px; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
 

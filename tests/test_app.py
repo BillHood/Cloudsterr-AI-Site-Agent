@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.discovery import DiscoveryBoundary
-from app.authentication import ApprovedLogin, classify_login_result, sanitized_request_evidence
+from app.authentication import ApprovedLogin, classify_login_result, sanitize_evidence, sanitized_request_evidence
 from app.main import app
 
 client = TestClient(app)
@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.15"}
+    assert response.json() == {"status": "ok", "version": "0.0.16"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -287,7 +287,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.15</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.16</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -397,3 +397,13 @@ def test_blocked_request_evidence_excludes_query_and_fragment() -> None:
         "resource_type": "fetch",
     }
     assert "secret" not in str(evidence)
+
+
+def test_historical_evidence_redacts_identifier_like_path_segments() -> None:
+    evidence = sanitize_evidence({
+        "status": "FAIL",
+        "blocked_requests": [{"method": "GET", "hostname": "api.example", "path": "/v1/users/LWP4rPN048gqcH3o1Lr7xROJrcs2"}],
+        "auth_responses": [],
+    })
+    assert evidence["blocked_requests"][0]["path"] == "/v1/users/[REDACTED]"
+    assert "LWP4rPN048gqcH3o1Lr7xROJrcs2" not in str(evidence)
