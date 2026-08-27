@@ -20,6 +20,16 @@ def _redact(text: str, secrets: tuple[str, ...]) -> str:
     return sanitized
 
 
+def sanitized_request_evidence(url: str, method: str, resource_type: str) -> dict:
+    parsed = urlparse(url)
+    return {
+        "method": method,
+        "hostname": parsed.hostname or "unknown",
+        "path": parsed.path or "/",
+        "resource_type": resource_type,
+    }
+
+
 def classify_login_result(
     *,
     path_matches: bool,
@@ -124,12 +134,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 submission_used = True
                 await route.continue_()
                 return
-            parsed = urlparse(request.url)
-            blocked = {
-                "method": request.method,
-                "hostname": parsed.hostname or "unknown",
-                "resource_type": request.resource_type,
-            }
+            blocked = sanitized_request_evidence(request.url, request.method, request.resource_type)
             if blocked not in blocked_requests:
                 blocked_requests.append(blocked)
             await route.abort("blockedbyclient")

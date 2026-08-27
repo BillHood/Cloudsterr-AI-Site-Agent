@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.discovery import DiscoveryBoundary
-from app.authentication import ApprovedLogin, classify_login_result
+from app.authentication import ApprovedLogin, classify_login_result, sanitized_request_evidence
 from app.main import app
 
 client = TestClient(app)
@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.12"}
+    assert response.json() == {"status": "ok", "version": "0.0.13"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -281,7 +281,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.12</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.13</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -339,3 +339,18 @@ def test_login_journey_rejects_broad_or_query_bearing_external_auth_url() -> Non
     }
     assert client.put(f"/api/sites/{site_id}/login-journey", json={**base_payload, "external_auth_url": "https://identity.example"}).status_code == 422
     assert client.put(f"/api/sites/{site_id}/login-journey", json={**base_payload, "external_auth_url": "https://identity.example/v1/login?key=secret"}).status_code == 422
+
+
+def test_blocked_request_evidence_excludes_query_and_fragment() -> None:
+    evidence = sanitized_request_evidence(
+        "https://identity.example/v1/accounts:lookup?key=secret#fragment",
+        "POST",
+        "fetch",
+    )
+    assert evidence == {
+        "method": "POST",
+        "hostname": "identity.example",
+        "path": "/v1/accounts:lookup",
+        "resource_type": "fetch",
+    }
+    assert "secret" not in str(evidence)
