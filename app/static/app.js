@@ -443,6 +443,7 @@ async function openAuthentication(button) {
   loginJourneyForm.elements.authenticated_shell_check.checked = Boolean(journey.authenticated_shell_check);
   loginJourneyForm.elements.firestore_listen_enabled.checked = Boolean(journey.firestore_listen_enabled);
   loginJourneyForm.elements.firestore_listen_get_enabled.checked = Boolean(journey.firestore_listen_get_enabled);
+  loginJourneyForm.elements.revenuecat_subscriber_get_enabled.checked = Boolean(journey.revenuecat_subscriber_get_enabled);
   loginJourneyForm.elements.approval_confirmed.checked = false;
   loginJourneyMessage.textContent = journey.configured ? `Login interaction v${journey.interaction_version} approved. Execution remains disabled.` : "No login definition is approved.";
   loginTestButton.dataset.siteId = button.dataset.siteId;
@@ -471,6 +472,7 @@ async function saveLoginJourney(event) {
   payload.authenticated_shell_check = formData.get("authenticated_shell_check") === "on";
   payload.firestore_listen_enabled = formData.get("firestore_listen_enabled") === "on";
   payload.firestore_listen_get_enabled = formData.get("firestore_listen_get_enabled") === "on";
+  payload.revenuecat_subscriber_get_enabled = formData.get("revenuecat_subscriber_get_enabled") === "on";
   payload.inventory_navigation_index = Number(formData.get("inventory_navigation_index"));
   payload.approval_confirmed = formData.get("approval_confirmed") === "on";
   const response = await fetch(`/api/sites/${loginJourneyForm.dataset.siteId}/login-journey`, {

@@ -121,6 +121,7 @@ class ApprovedLogin:
     inventory_destination_path: str = ""
     firestore_listen_enabled: bool = False
     firestore_listen_get_enabled: bool = False
+    revenuecat_subscriber_get_enabled: bool = False
 
     @property
     def origin(self) -> str:
@@ -162,6 +163,15 @@ class ApprovedLogin:
             and parsed.scheme == "https"
             and parsed.hostname == "firestore.googleapis.com"
             and parsed.path.rstrip("/").endswith("/Listen/channel")
+        )
+
+    def permits_revenuecat_subscriber_get(self, url: str) -> bool:
+        parsed = urlparse(url)
+        return (
+            self.revenuecat_subscriber_get_enabled
+            and parsed.scheme == "https"
+            and parsed.hostname == "api.revenuecat.com"
+            and re.fullmatch(r"/v1/subscribers/[^/]+(?:/offerings)?", parsed.path.rstrip("/")) is not None
         )
 
     def success_path_matches(self, url: str) -> bool:
@@ -214,6 +224,14 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 and login.permits_firestore_listen(request.url)
             )
             if approved_firestore_listen_get:
+                await route.continue_()
+                return
+            approved_revenuecat_get = (
+                request.method == "GET"
+                and request.resource_type in {"fetch", "xhr"}
+                and login.permits_revenuecat_subscriber_get(request.url)
+            )
+            if approved_revenuecat_get:
                 await route.continue_()
                 return
             approved_document_post = request.resource_type == "document" and permitted and not document_submission_used
@@ -279,8 +297,9 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                     final_url = page.url
                     stage = "INVENTORY_DESTINATION_REACHED"
                 control_selector = "input, textarea, button, [contenteditable='true'], [role='log'], [role='status'], [aria-live]"
+                editable_selector = "textarea, input:not([type='file']):not([type='hidden']), [contenteditable='true']"
                 stage = "INVENTORY_CONTROLS_PENDING"
-                await page.locator(control_selector).first.wait_for(state="attached", timeout=10_000)
+                await page.locator(editable_selector).first.wait_for(state="attached", timeout=10_000)
                 stage = "INVENTORY_CONTROLS_READY"
                 raw_controls = await page.locator(control_selector).evaluate_all(
                     """elements => elements.map(element => ({

@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.27`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.28`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.27 records the authenticated HTTPS Firestore Listen GET backchannel as a separate versioned permission from the existing POST read-stream permission. Both permissions require the exact host and `/Listen/channel` path suffix. `/Write/channel` and every other unapproved external endpoint remain blocked. Cloudsterr does not store request or response bodies, headers, queries, page text, screenshots, field values, credentials, tokens, or session data.
+Version 0.0.28 adds a separate versioned opt-in for HTTPS GET requests to the exact RevenueCat subscriber record and its `/offerings` child. RevenueCat event POSTs and all unrelated paths remain blocked. Inventory readiness now requires an editable candidate, so navigation buttons alone cannot produce PASS. Cloudsterr does not store identifiers, request or response bodies, headers, queries, page text, screenshots, field values, credentials, tokens, or session data.
 
 ## Safety boundary
 

@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.27"}
+    assert response.json() == {"status": "ok", "version": "0.0.28"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -229,6 +229,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
             "inventory_destination_path": "/public/fred",
             "firestore_listen_enabled": True,
             "firestore_listen_get_enabled": True,
+            "revenuecat_subscriber_get_enabled": True,
             "approval_confirmed": True,
         },
     )
@@ -246,6 +247,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     assert stored_journey.json()["inventory_destination_path"] == "/public/fred"
     assert stored_journey.json()["firestore_listen_enabled"] is True
     assert stored_journey.json()["firestore_listen_get_enabled"] is True
+    assert stored_journey.json()["revenuecat_subscriber_get_enabled"] is True
 
     monkeypatch.setenv("CLOUDSTERR_TEST_USERNAME", "test-user-value")
     monkeypatch.setenv("CLOUDSTERR_TEST_PASSWORD", "test-password-value")
@@ -307,7 +309,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.27</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.28</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -341,6 +343,7 @@ def test_external_auth_boundary_allows_only_exact_https_endpoint() -> None:
         external_auth_url="https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
         external_followup_url="https://identitytoolkit.googleapis.com/v1/accounts:lookup",
         firestore_listen_enabled=True,
+        revenuecat_subscriber_get_enabled=True,
     )
     assert login.permits_auth_submission(
         "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=redacted"
@@ -353,6 +356,11 @@ def test_external_auth_boundary_allows_only_exact_https_endpoint() -> None:
     assert not login.permits_firestore_listen("https://firestore.googleapis.com/google.firestore.v1.Firestore/Write/channel?database=approved")
     assert not login.permits_firestore_listen("http://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel")
     assert not login.permits_firestore_listen("https://other.example/google.firestore.v1.Firestore/Listen/channel")
+    assert login.permits_revenuecat_subscriber_get("https://api.revenuecat.com/v1/subscribers/customer-123")
+    assert login.permits_revenuecat_subscriber_get("https://api.revenuecat.com/v1/subscribers/customer-123/offerings?platform=web")
+    assert not login.permits_revenuecat_subscriber_get("https://api.revenuecat.com/v1/events")
+    assert not login.permits_revenuecat_subscriber_get("https://api.revenuecat.com/v1/subscribers/customer-123/attributes")
+    assert not login.permits_revenuecat_subscriber_get("https://e.revenue.cat/v1/events")
     assert login.success_path_matches("https://example.com/dashboard")
     assert not login.success_path_matches("https://example.com/login")
     assert not login.success_path_matches("https://example.com/dashboard/other")
