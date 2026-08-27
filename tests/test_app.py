@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.23"}
+    assert response.json() == {"status": "ok", "version": "0.0.24"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -303,7 +303,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.23</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.24</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 

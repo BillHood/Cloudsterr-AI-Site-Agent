@@ -253,9 +253,11 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                         raise RuntimeError("Approved inventory destination was not reached")
                     final_url = page.url
                     stage = "INVENTORY_DESTINATION_REACHED"
-                raw_controls = await page.locator(
-                    "input, textarea, button, [contenteditable='true'], [role='log'], [role='status'], [aria-live]"
-                ).evaluate_all(
+                control_selector = "input, textarea, button, [contenteditable='true'], [role='log'], [role='status'], [aria-live]"
+                stage = "INVENTORY_CONTROLS_PENDING"
+                await page.locator(control_selector).first.wait_for(state="attached", timeout=10_000)
+                stage = "INVENTORY_CONTROLS_READY"
+                raw_controls = await page.locator(control_selector).evaluate_all(
                     """elements => elements.map(element => ({
                         tag: element.tagName.toLowerCase(),
                         type: element.getAttribute('type'),
