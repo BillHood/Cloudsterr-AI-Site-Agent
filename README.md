@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.30`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.31`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.30 adds separately confirmed response verification for the consumed one-time probe. It reads only the last element explicitly marked `data-message-role="assistant"` or `data-role="assistant"`, truncates in the browser to 300 characters, sanitizes identifiers, stores it with the probe evidence, and records whether it contains `READY`. It submits no additional message and reads no user-message or conversation-history selectors.
+Version 0.0.31 adds a text-free response-marker discovery fallback. When strict assistant data-role attributes are absent, it returns only sanitized tag, class, ID, role, and test-ID metadata from likely chat/message containers. It does not read their text. Actual response capture remains limited to the last element explicitly approved as an assistant marker.
 
 ## Safety boundary
 

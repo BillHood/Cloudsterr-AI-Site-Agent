@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.discovery import DiscoveryBoundary
-from app.authentication import ApprovedLogin, classify_login_result, sanitize_control_inventory, sanitize_evidence, sanitize_response_text, sanitized_request_evidence
+from app.authentication import ApprovedLogin, classify_login_result, sanitize_control_inventory, sanitize_evidence, sanitize_response_candidates, sanitize_response_text, sanitized_request_evidence
 from app.main import app
 
 client = TestClient(app)
@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.30"}
+    assert response.json() == {"status": "ok", "version": "0.0.31"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -309,7 +309,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.30</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.31</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -530,6 +530,12 @@ def test_response_text_is_capped_and_sanitized() -> None:
     response = sanitize_response_text("READY account-LWP4rPN048gqcH3o1Lr7xROJrcs2 " + "x" * 400, ())
     assert response.startswith("READY [REDACTED]")
     assert len(response) <= 300
+
+
+def test_response_candidate_inventory_excludes_text() -> None:
+    candidates = sanitize_response_candidates([{"tag": "div", "classes": "fred-message assistant", "data_role": "bot", "text": "private reply"}])
+    assert candidates == [{"tag": "div", "classes": "fred-message assistant", "data_role": "bot"}]
+    assert "private reply" not in str(candidates)
 
 
 def test_control_inventory_excludes_text_values_and_redacts_identifier_like_attributes() -> None:

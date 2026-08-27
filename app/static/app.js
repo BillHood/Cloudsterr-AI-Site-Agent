@@ -580,7 +580,9 @@ async function captureFixedChatResponse() {
     const data = await response.json();
     if (!response.ok) throw new Error(formatApiError(data, "Response capture could not run."));
     chatResponseMessage.classList.toggle("error", data.status !== "PASS");
-    chatResponseMessage.textContent = data.latest_response ? `Captured: ${data.latest_response} · READY found: ${data.response_contains_ready ? "yes" : "no"}` : `Response capture ${data.status}; no marked assistant response was stored.`;
+    chatResponseMessage.textContent = data.latest_response
+      ? `Captured: ${data.latest_response} · READY found: ${data.response_contains_ready ? "yes" : "no"}`
+      : `Response marker required. Structural candidates: ${JSON.stringify(data.response_candidates || [])}`;
   } catch (error) {
     chatResponseMessage.classList.add("error");
     chatResponseMessage.textContent = error.message;

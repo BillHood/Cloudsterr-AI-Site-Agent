@@ -65,6 +65,14 @@ def sanitize_control_inventory(items: list[dict]) -> list[dict]:
     ]
 
 
+def sanitize_response_candidates(items: list[dict]) -> list[dict]:
+    allowed = {"tag", "id", "role", "test_id", "classes", "message_role", "data_role"}
+    return [
+        {key: sanitized_dom_attribute(str(value)) for key, value in item.items() if key in allowed and value not in (None, "")}
+        for item in items[:50]
+    ]
+
+
 def sanitize_evidence(evidence: dict) -> dict:
     sanitized = dict(evidence)
     for key in ("blocked_requests", "auth_responses"):
@@ -357,14 +365,30 @@ async def execute_approved_login(
                 control_inventory = sanitize_control_inventory(raw_controls)
                 latest_response = None
                 response_contains_ready = None
+                response_candidates = None
                 if capture_latest_response:
                     response_locator = page.locator("[data-message-role='assistant'], [data-role='assistant']")
                     if await response_locator.count() == 0:
-                        raise RuntimeError("No explicitly marked assistant response was found")
-                    response_text = await response_locator.last.evaluate("element => element.innerText.slice(0, 300)")
-                    latest_response = sanitize_response_text(response_text, (username, password))
-                    response_contains_ready = re.search(r"\bREADY\b", latest_response, re.IGNORECASE) is not None
-                    stage = "LATEST_ASSISTANT_RESPONSE_CAPTURED"
+                        raw_candidates = await page.locator(
+                            "[class*='chat'], [class*='message'], [class*='response'], [class*='bubble'], [class*='thread'], [class*='fred'], [role='log']"
+                        ).evaluate_all(
+                            """elements => elements.map(element => ({
+                                tag: element.tagName.toLowerCase(),
+                                id: element.getAttribute('id'),
+                                role: element.getAttribute('role'),
+                                test_id: element.getAttribute('data-testid'),
+                                classes: Array.from(element.classList).slice(0, 5).join(' '),
+                                message_role: element.getAttribute('data-message-role'),
+                                data_role: element.getAttribute('data-role')
+                            }))"""
+                        )
+                        response_candidates = sanitize_response_candidates(raw_candidates)
+                        stage = "RESPONSE_MARKER_REQUIRED"
+                    else:
+                        response_text = await response_locator.last.evaluate("element => element.innerText.slice(0, 300)")
+                        latest_response = sanitize_response_text(response_text, (username, password))
+                        response_contains_ready = re.search(r"\bREADY\b", latest_response, re.IGNORECASE) is not None
+                        stage = "LATEST_ASSISTANT_RESPONSE_CAPTURED"
             visible_errors = []
             if not collect_control_inventory:
                 error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
@@ -386,7 +410,7 @@ async def execute_approved_login(
                 outcome = "CHAT_PROBE_ACCEPTED" if status == "PASS" else "CHAT_PROBE_NOT_ACCEPTED"
             if capture_latest_response:
                 status = "PASS" if latest_response else "FAIL"
-                outcome = "EXPECTED_RESPONSE_FOUND" if response_contains_ready else "RESPONSE_CAPTURED"
+                outcome = "EXPECTED_RESPONSE_FOUND" if response_contains_ready else "RESPONSE_CAPTURED" if latest_response else "RESPONSE_MARKER_REQUIRED"
             return {
                 "status": status,
                 "outcome": outcome,
@@ -401,6 +425,7 @@ async def execute_approved_login(
                 "probe_input_cleared": probe_input_cleared if chat_probe else None,
                 "latest_response": latest_response if capture_latest_response else None,
                 "response_contains_ready": response_contains_ready if capture_latest_response else None,
+                "response_candidates": response_candidates if capture_latest_response else None,
                 "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],
