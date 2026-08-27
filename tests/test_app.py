@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.35"}
+    assert response.json() == {"status": "ok", "version": "0.0.36"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -309,7 +309,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.35</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.36</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -676,3 +676,17 @@ def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
     assert retry.status_code == 200
     assert retry.json()["latest_response"] == "READY"
     assert duplicate_retry.status_code == 409
+
+    async def fake_final(_approved, _username, _password, collect_control_inventory=False, chat_probe=None, capture_latest_response=False):
+        assert collect_control_inventory is True
+        assert capture_latest_response is True
+        assert chat_probe["retry"] == 2
+        assert chat_probe["corrected_wait_confirmed"] is True
+        return {"status": "PASS", "outcome": "EXPECTED_RESPONSE_FOUND", "chat_message_submitted": True, "probe_input_cleared": True, "latest_response": "READY", "response_contains_ready": True, "blocked_requests": [], "auth_responses": []}
+
+    monkeypatch.setattr("app.main.execute_approved_login", fake_final)
+    final_attempt = client.post(f"/api/sites/{site_id}/fixed-chat-probe-final-once", json={"execution_confirmed": True})
+    duplicate_final = client.post(f"/api/sites/{site_id}/fixed-chat-probe-final-once", json={"execution_confirmed": True})
+    assert final_attempt.status_code == 200
+    assert final_attempt.json()["probe_version"] == 3
+    assert duplicate_final.status_code == 409

@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.35</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.36</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.35 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.36 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -131,6 +131,8 @@
         <p id="chat-response-message" class="status-message" aria-live="polite">Scans chat messages in memory to locate the exact approved probe, then retains only the first subsequent assistant bubble, capped at 300 characters. Earlier messages are not returned or stored.</p>
         <button id="chat-probe-retry-button" class="run-button" type="button">Run authorized probe retry once</button>
         <p id="chat-probe-retry-message" class="status-message" aria-live="polite">Single-use retry with bounded Firestore Write backchannel and one same-origin Gemini request.</p>
+        <button id="chat-probe-final-button" class="run-button" type="button">Run corrected final probe once</button>
+        <p id="chat-probe-final-message" class="status-message" aria-live="polite">Fresh single-use approval using the corrected response-wait call. Prior attempts remain consumed.</p>
       </section>
 
       <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>
