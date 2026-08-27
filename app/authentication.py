@@ -367,11 +367,18 @@ async def execute_approved_login(
                 response_contains_ready = None
                 response_candidates = None
                 if capture_latest_response:
-                    response_locator = page.locator(
-                        "[data-message-role='assistant'], [data-role='assistant'], "
-                        ".chat-message.assistant .chat-bubble.markdown-body"
+                    correlated_response = await page.locator(".chat-messages").evaluate(
+                        """(container, probeMessage) => {
+                            const messages = Array.from(container.querySelectorAll('.chat-message'));
+                            const probeIndex = messages.findIndex(message => message.innerText.includes(probeMessage));
+                            if (probeIndex < 0) return null;
+                            const response = messages.slice(probeIndex + 1).find(message => message.classList.contains('assistant'));
+                            const bubble = response?.querySelector('.chat-bubble.markdown-body');
+                            return bubble ? bubble.innerText.slice(0, 300) : null;
+                        }""",
+                        "Cloudsterr functional check. Please reply with READY.",
                     )
-                    if await response_locator.count() == 0:
+                    if correlated_response is None:
                         raw_candidates = await page.locator(
                             "[class*='chat'], [class*='message'], [class*='response'], [class*='bubble'], [class*='thread'], [class*='fred'], [role='log']"
                         ).evaluate_all(
@@ -388,8 +395,7 @@ async def execute_approved_login(
                         response_candidates = sanitize_response_candidates(raw_candidates)
                         stage = "RESPONSE_MARKER_REQUIRED"
                     else:
-                        response_text = await response_locator.last.evaluate("element => element.innerText.slice(0, 300)")
-                        latest_response = sanitize_response_text(response_text, (username, password))
+                        latest_response = sanitize_response_text(correlated_response, (username, password))
                         response_contains_ready = re.search(r"\bREADY\b", latest_response, re.IGNORECASE) is not None
                         stage = "LATEST_ASSISTANT_RESPONSE_CAPTURED"
             visible_errors = []
