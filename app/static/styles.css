@@ -55,6 +55,11 @@ a:focus-visible,
   margin: 0 auto;
   padding: 1.25rem 0;
 }
+.account-actions { display: flex; align-items: center; gap: 0.75rem; }
+#account-email { color: var(--muted); font-size: 0.85rem; }
+.account-gate { width: min(560px, calc(100% - 2rem)); margin: clamp(3rem, 10vw, 7rem) auto; }
+.account-card { border: 1px solid var(--border); border-radius: 1.25rem; padding: clamp(1.5rem, 5vw, 3rem); background: rgba(15, 32, 52, 0.95); box-shadow: 0 1.5rem 4rem rgba(0,0,0,.25); }
+.account-card h1 { font-size: clamp(2rem, 6vw, 3.4rem); }
 
 .brand {
   display: flex;

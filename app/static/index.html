@@ -15,19 +15,33 @@
         <span class="brand-mark" aria-hidden="true">C</span>
         <span>Cloudsterr</span>
       </div>
-      <div id="plan-badge" class="local-badge">Loading plan…</div>
+      <div class="account-actions"><span id="account-email" hidden></span><button id="logout-button" class="secondary-button" type="button" hidden>Sign out</button><div id="plan-badge" class="local-badge">Cloudsterr account</div></div>
     </header>
 
-    <main id="main-content">
+    <section id="account-gate" class="account-gate" aria-labelledby="account-gate-title">
+      <div class="account-card">
+        <p class="eyebrow">Cloudsterr account</p>
+        <h1 id="account-gate-title">Sign in to monitor your sites.</h1>
+        <p id="account-copy" class="section-copy">Create the owner account for this Cloudsterr installation.</p>
+        <form id="account-form">
+          <label>Email<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"><span class="field-help">Use at least 12 characters.</span></label>
+          <button id="account-submit" class="primary-button" type="submit">Create owner account</button>
+          <p id="account-message" class="status-message" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+
+    <main id="main-content" hidden>
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.1.3</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.1.4</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.1.3 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.1.4 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>

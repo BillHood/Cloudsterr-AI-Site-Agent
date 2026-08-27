@@ -45,7 +45,71 @@ const browserUsage = document.querySelector("#browser-usage");
 const apiUsage = document.querySelector("#api-usage");
 const siteAllowance = document.querySelector("#site-allowance");
 const planMessage = document.querySelector("#plan-message");
+const accountGate = document.querySelector("#account-gate");
+const accountForm = document.querySelector("#account-form");
+const accountCopy = document.querySelector("#account-copy");
+const accountSubmit = document.querySelector("#account-submit");
+const accountMessage = document.querySelector("#account-message");
+const accountEmail = document.querySelector("#account-email");
+const logoutButton = document.querySelector("#logout-button");
+const mainContent = document.querySelector("#main-content");
 let activePlan = null;
+
+function showAuthenticatedAccount(email) {
+  accountGate.hidden = true;
+  mainContent.hidden = false;
+  accountEmail.hidden = false;
+  accountEmail.textContent = email;
+  logoutButton.hidden = false;
+}
+
+function showAccountGate(registrationAvailable) {
+  accountGate.hidden = false;
+  mainContent.hidden = true;
+  accountEmail.hidden = true;
+  logoutButton.hidden = true;
+  accountForm.dataset.mode = registrationAvailable ? "register" : "login";
+  accountCopy.textContent = registrationAvailable ? "Create the owner account for this Cloudsterr installation." : "Sign in with the Cloudsterr owner account.";
+  accountSubmit.textContent = registrationAvailable ? "Create owner account" : "Sign in";
+  accountForm.elements.password.autocomplete = registrationAvailable ? "new-password" : "current-password";
+}
+
+async function initializeAccount() {
+  const response = await fetch("/api/auth/me", {headers: {Accept: "application/json"}});
+  const data = await response.json();
+  if (data.authenticated) {
+    showAuthenticatedAccount(data.email);
+    await loadSites();
+  } else {
+    showAccountGate(data.registration_available);
+  }
+}
+
+async function submitAccount(event) {
+  event.preventDefault();
+  accountMessage.classList.remove("error");
+  const mode = accountForm.dataset.mode;
+  const response = await fetch(`/api/auth/${mode}`, {
+    method: "POST", headers: {"Content-Type": "application/json", Accept: "application/json"},
+    body: JSON.stringify({email: accountForm.elements.email.value, password: accountForm.elements.password.value}),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    accountMessage.classList.add("error");
+    accountMessage.textContent = formatApiError(data, "Cloudsterr authentication failed.");
+    return;
+  }
+  accountForm.reset();
+  accountMessage.textContent = "";
+  showAuthenticatedAccount(data.email);
+  await loadSites();
+}
+
+async function logoutAccount() {
+  await fetch("/api/auth/logout", {method: "POST", headers: {Accept: "application/json"}});
+  activePlan = null;
+  showAccountGate(false);
+}
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -884,4 +948,6 @@ chatProbeRetryButton.addEventListener("click", runFixedChatProbeRetry);
 chatProbeFinalButton.addEventListener("click", runFixedChatProbeFinal);
 fredOnlineButton.addEventListener("click", runFredOnlineCheck);
 fredMonitorForm.addEventListener("submit", saveFredMonitor);
-loadSites();
+accountForm.addEventListener("submit", submitAccount);
+logoutButton.addEventListener("click", logoutAccount);
+initializeAccount();

@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import os
 import json
+import secrets
 import sqlite3
 import re
 from contextlib import asynccontextmanager, closing, suppress
@@ -9,7 +11,8 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
@@ -193,6 +196,19 @@ class FredMonitorSchedule(BaseModel):
     bounded_network_confirmed: bool = False
 
 
+class AccountCredentials(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
+            raise ValueError("Enter a valid email address")
+        return normalized
+
+
 FIXED_CHAT_PROBE = {
     "input_selector": "#fred-chat-input",
     "submit_selector": "form:has(#fred-chat-input) button[type='submit']",
@@ -271,6 +287,44 @@ def require_browser_capacity(connection: sqlite3.Connection) -> None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan browser-run limit has been reached for this month.")
 
 
+SESSION_COOKIE = "cloudsterr_session"
+SESSION_LIFETIME = timedelta(days=7)
+
+
+def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
+    password_salt = salt or secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode("utf-8"), salt=password_salt, n=2**14, r=8, p=1, dklen=32)
+    return password_salt.hex(), digest.hex()
+
+
+def verify_password(password: str, salt_hex: str, expected_hex: str) -> bool:
+    _, candidate = hash_password(password, bytes.fromhex(salt_hex))
+    return secrets.compare_digest(candidate, expected_hex)
+
+
+def session_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        SESSION_COOKIE, token, max_age=int(SESSION_LIFETIME.total_seconds()),
+        httponly=True, secure=os.environ.get("CLOUDSTERR_SECURE_COOKIES", "0") == "1",
+        samesite="strict", path="/",
+    )
+
+
+def create_session(connection: sqlite3.Connection, user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(UTC)
+    connection.execute(
+        "INSERT INTO account_sessions (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+        (str(uuid4()), user_id, session_token_hash(token), now.isoformat(), (now + SESSION_LIFETIME).isoformat()),
+    )
+    connection.commit()
+    return token
+
+
 LOGIN_DEFINITION_FIELDS = (
     "username_selector", "password_selector", "submit_selector", "success_path", "success_text",
     "success_mode", "authenticated_shell_check", "main_selector", "heading_selector",
@@ -304,6 +358,30 @@ def connect_database() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            password_salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES account_users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute("CREATE INDEX IF NOT EXISTS account_sessions_expiry ON account_sessions(expires_at)")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS sites (
@@ -722,13 +800,40 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.1.3",
+    version="0.1.4",
     lifespan=lifespan,
 )
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=["127.0.0.1", "localhost", "testserver"],
 )
+
+
+@app.middleware("http")
+async def require_cloudsterr_session(request: Request, call_next):
+    public_api = request.url.path == "/api/health" or request.url.path.startswith("/api/auth/")
+    if not request.url.path.startswith("/api/") or public_api or request.method == "OPTIONS":
+        return await call_next(request)
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": "Sign in to Cloudsterr to continue."})
+    now = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        connection.execute("DELETE FROM account_sessions WHERE expires_at <= ?", (now,))
+        session = connection.execute(
+            "SELECT account_sessions.id AS session_id, account_users.id AS user_id, account_users.email FROM account_sessions JOIN account_users ON account_users.id = account_sessions.user_id WHERE token_hash = ? AND expires_at > ?",
+            (session_token_hash(token), now),
+        ).fetchone()
+        connection.commit()
+    if session is None:
+        response = JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": "Your Cloudsterr session has expired. Sign in again."})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+    request.state.user_id = session["user_id"]
+    request.state.user_email = session["email"]
+    request.state.session_id = session["session_id"]
+    return await call_next(request)
+
 app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
 
 
@@ -750,6 +855,63 @@ async def demonstration_about() -> FileResponse:
 @app.get("/api/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok", "version": app.version}
+
+
+@app.get("/api/auth/me", tags=["account"])
+async def account_me(request: Request) -> dict:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        with closing(connect_database()) as connection:
+            user_count = connection.execute("SELECT COUNT(*) FROM account_users").fetchone()[0]
+        return {"authenticated": False, "registration_available": user_count == 0}
+    now = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        session = connection.execute(
+            "SELECT account_users.id, account_users.email FROM account_sessions JOIN account_users ON account_users.id = account_sessions.user_id WHERE token_hash = ? AND expires_at > ?",
+            (session_token_hash(token), now),
+        ).fetchone()
+        user_count = connection.execute("SELECT COUNT(*) FROM account_users").fetchone()[0]
+    if session is None:
+        return {"authenticated": False, "registration_available": user_count == 0}
+    return {"authenticated": True, "email": session["email"], "registration_available": False}
+
+
+@app.post("/api/auth/register", tags=["account"], status_code=status.HTTP_201_CREATED)
+async def register_account(credentials: AccountCredentials, response: Response) -> dict:
+    with closing(connect_database()) as connection:
+        if connection.execute("SELECT COUNT(*) FROM account_users").fetchone()[0] > 0:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This Cloudsterr installation already has an owner account. Sign in instead.")
+        user_id = str(uuid4())
+        salt, password_hash = hash_password(credentials.password)
+        connection.execute(
+            "INSERT INTO account_users (id, email, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, credentials.email, salt, password_hash, datetime.now(UTC).isoformat()),
+        )
+        token = create_session(connection, user_id)
+    set_session_cookie(response, token)
+    return {"authenticated": True, "email": credentials.email}
+
+
+@app.post("/api/auth/login", tags=["account"])
+async def login_account(credentials: AccountCredentials, response: Response) -> dict:
+    with closing(connect_database()) as connection:
+        user = connection.execute("SELECT * FROM account_users WHERE email = ?", (credentials.email,)).fetchone()
+        if user is None or not verify_password(credentials.password, user["password_salt"], user["password_hash"]):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email or password is incorrect.")
+        token = create_session(connection, user["id"])
+    set_session_cookie(response, token)
+    return {"authenticated": True, "email": user["email"]}
+
+
+@app.post("/api/auth/logout", tags=["account"])
+async def logout_account(request: Request, response: Response) -> dict:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        with closing(connect_database()) as connection:
+            connection.execute("DELETE FROM account_sessions WHERE token_hash = ?", (session_token_hash(token),))
+            connection.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"authenticated": False}
 
 
 @app.get("/api/account/plan", tags=["account"])

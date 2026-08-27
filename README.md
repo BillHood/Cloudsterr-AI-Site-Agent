@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.1.3`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.1.4`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.1.3 adds Free and Starter entitlements. Free includes 10 sites, 1,000 browser runs, 10,000 future API runs, five-minute minimum scheduling, and seven-day history. Starter is priced at $12/month annually or $15 monthly and includes 50 sites, 3,000 browser runs, 25,000 future API runs, one-minute scheduling, three users, and 90-day history. Browser quotas are enforced before execution. Until billing is connected, deployments select Starter with the trusted server environment variable `CLOUDSTERR_PLAN=starter`.
+Version 0.1.4 adds a single-owner Cloudsterr account with registration, login, logout, seven-day revocable sessions, scrypt password hashing with per-user salts, HttpOnly SameSite=Strict cookies, and authentication enforcement across dashboard APIs. Existing monitoring data remains installation-wide until the next tenant-ownership migration. Production deployments must set `CLOUDSTERR_SECURE_COOKIES=1` behind HTTPS. Email verification and password reset require a future email-provider integration.
 
 ## Safety boundary
 

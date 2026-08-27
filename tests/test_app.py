@@ -13,6 +13,9 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def isolated_data_directory(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("CLOUDSTERR_DATA_DIR", str(tmp_path))
+    client.cookies.clear()
+    registered = client.post("/api/auth/register", json={"email": "owner@example.com", "password": "correct-horse-battery-staple"})
+    assert registered.status_code == 201
 
 
 def registration_payload(**overrides) -> dict:
@@ -33,7 +36,19 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.3"}
+    assert response.json() == {"status": "ok", "version": "0.1.4"}
+
+
+def test_account_session_protects_dashboard_apis() -> None:
+    me = client.get("/api/auth/me")
+    assert me.json() == {"authenticated": True, "email": "owner@example.com", "registration_available": False}
+    logged_out = client.post("/api/auth/logout")
+    assert logged_out.status_code == 200
+    assert client.get("/api/sites").status_code == 401
+    assert client.post("/api/auth/login", json={"email": "owner@example.com", "password": "wrong-password-value"}).status_code == 401
+    logged_in = client.post("/api/auth/login", json={"email": "owner@example.com", "password": "correct-horse-battery-staple"})
+    assert logged_in.status_code == 200
+    assert client.get("/api/sites").status_code == 200
 
 
 def test_plan_endpoint_defaults_to_free_and_supports_trusted_starter_configuration(monkeypatch) -> None:
@@ -328,7 +343,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.1.3</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.1.4</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
