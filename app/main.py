@@ -162,6 +162,25 @@ class LoginJourney(BaseModel):
 class LoginExecutionRequest(BaseModel):
     execution_confirmed: bool
 
+
+LOGIN_DEFINITION_FIELDS = (
+    "username_selector", "password_selector", "submit_selector", "success_path", "success_text",
+    "success_mode", "authenticated_shell_check", "main_selector", "heading_selector",
+    "navigation_selector", "external_auth_url", "external_followup_url",
+)
+
+
+def login_definition(source) -> dict:
+    definition = {}
+    for field in LOGIN_DEFINITION_FIELDS:
+        value = source[field] if isinstance(source, sqlite3.Row) else getattr(source, field)
+        if field == "authenticated_shell_check":
+            value = bool(value)
+        if field in {"external_auth_url", "external_followup_url"}:
+            value = str(value) if value else None
+        definition[field] = value
+    return definition
+
 def database_path() -> Path:
     data_root = Path(os.environ.get("CLOUDSTERR_DATA_DIR", DEFAULT_DATA_ROOT))
     data_root.mkdir(parents=True, exist_ok=True)
@@ -202,6 +221,11 @@ def connect_database() -> sqlite3.Connection:
         )
         """
     )
+    authentication_run_columns = {row[1] for row in connection.execute("PRAGMA table_info(authentication_runs)")}
+    if "interaction_definition_id" not in authentication_run_columns:
+        connection.execute("ALTER TABLE authentication_runs ADD COLUMN interaction_definition_id TEXT")
+    if "interaction_version" not in authentication_run_columns:
+        connection.execute("ALTER TABLE authentication_runs ADD COLUMN interaction_version INTEGER")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS login_journeys (
@@ -316,6 +340,33 @@ def connect_database() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS interaction_definitions (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            interaction_type TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            definition_json TEXT NOT NULL,
+            approved_at TEXT NOT NULL,
+            supersedes_id TEXT,
+            UNIQUE(site_id, interaction_type, version),
+            FOREIGN KEY (site_id) REFERENCES sites(id),
+            FOREIGN KEY (supersedes_id) REFERENCES interaction_definitions(id)
+        )
+        """
+    )
+    existing_journeys = connection.execute("SELECT * FROM login_journeys").fetchall()
+    for journey in existing_journeys:
+        existing_definition = connection.execute(
+            "SELECT id FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' LIMIT 1",
+            (journey["site_id"],),
+        ).fetchone()
+        if existing_definition is None:
+            connection.execute(
+                "INSERT INTO interaction_definitions (id, site_id, interaction_type, version, definition_json, approved_at, supersedes_id) VALUES (?, ?, 'login', 1, ?, ?, NULL)",
+                (str(uuid4()), journey["site_id"], json.dumps(login_definition(journey), sort_keys=True), journey["approved_at"]),
+            )
     connection.commit()
     return connection
 
@@ -376,7 +427,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.17",
+    version="0.0.18",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -821,6 +872,10 @@ async def get_login_journey(site_id: str) -> dict:
     with closing(connect_database()) as connection:
         site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
         row = connection.execute("SELECT * FROM login_journeys WHERE site_id = ?", (site_id,)).fetchone()
+        interaction = connection.execute(
+            "SELECT id, version FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1",
+            (site_id,),
+        ).fetchone()
     if site is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
     if row is None:
@@ -840,6 +895,8 @@ async def get_login_journey(site_id: str) -> dict:
         "external_auth_url": row["external_auth_url"] or "",
         "external_followup_url": row["external_followup_url"] or "",
         "approved_at": row["approved_at"],
+        "interaction_definition_id": interaction["id"] if interaction else None,
+        "interaction_version": interaction["version"] if interaction else None,
         "execution_enabled": False,
     }
 
@@ -862,6 +919,28 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         if allowed != "/" and journey.success_path != allowed and not journey.success_path.startswith(f"{allowed}/"):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Success path is outside the allowed boundary.")
         approved_at = datetime.now(UTC).isoformat()
+        definition_json = json.dumps(login_definition(journey), sort_keys=True)
+        latest_interaction = connection.execute(
+            "SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1",
+            (site_id,),
+        ).fetchone()
+        if latest_interaction is not None and latest_interaction["definition_json"] == definition_json:
+            interaction_id = latest_interaction["id"]
+            interaction_version = latest_interaction["version"]
+        else:
+            interaction_id = str(uuid4())
+            interaction_version = (latest_interaction["version"] if latest_interaction else 0) + 1
+            connection.execute(
+                "INSERT INTO interaction_definitions (id, site_id, interaction_type, version, definition_json, approved_at, supersedes_id) VALUES (?, ?, 'login', ?, ?, ?, ?)",
+                (
+                    interaction_id,
+                    site_id,
+                    interaction_version,
+                    definition_json,
+                    approved_at,
+                    latest_interaction["id"] if latest_interaction else None,
+                ),
+            )
         connection.execute(
             """
             INSERT INTO login_journeys (
@@ -917,6 +996,32 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         "navigation_selector": journey.navigation_selector,
         "external_auth_url": str(journey.external_auth_url) if journey.external_auth_url else "",
         "external_followup_url": str(journey.external_followup_url) if journey.external_followup_url else "",
+        "interaction_definition_id": interaction_id,
+        "interaction_version": interaction_version,
+    }
+
+
+@app.get("/api/sites/{site_id}/interactions", tags=["authentication"])
+async def list_interaction_definitions(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        rows = connection.execute(
+            "SELECT id, interaction_type, version, approved_at, supersedes_id FROM interaction_definitions WHERE site_id = ? ORDER BY interaction_type, version DESC",
+            (site_id,),
+        ).fetchall()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    return {
+        "interactions": [
+            {
+                "id": row["id"],
+                "type": row["interaction_type"],
+                "version": row["version"],
+                "approved_at": row["approved_at"],
+                "supersedes_id": row["supersedes_id"],
+            }
+            for row in rows
+        ]
     }
 
 
@@ -927,11 +1032,15 @@ async def run_login_test(site_id: str, request: LoginExecutionRequest) -> dict:
     with closing(connect_database()) as connection:
         site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
         profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
-        journey = connection.execute("SELECT * FROM login_journeys WHERE site_id = ?", (site_id,)).fetchone()
+        interaction = connection.execute(
+            "SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1",
+            (site_id,),
+        ).fetchone()
     if site is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
-    if profile is None or journey is None:
+    if profile is None or interaction is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Authentication references and an approved login definition are required.")
+    journey = json.loads(interaction["definition_json"])
 
     username = os.environ.get(profile["username_env"])
     password = os.environ.get(profile["password_env"])
@@ -968,11 +1077,11 @@ async def run_login_test(site_id: str, request: LoginExecutionRequest) -> dict:
     completed_at = datetime.now(UTC).isoformat()
     with closing(connect_database()) as connection:
         connection.execute(
-            "INSERT INTO authentication_runs (id, site_id, started_at, completed_at, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?)",
-            (run_id, site_id, started_at, completed_at, evidence["status"], json.dumps(evidence)),
+            "INSERT INTO authentication_runs (id, site_id, started_at, completed_at, status, evidence_json, interaction_definition_id, interaction_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (run_id, site_id, started_at, completed_at, evidence["status"], json.dumps(evidence), interaction["id"], interaction["version"]),
         )
         connection.commit()
-    return {"run_id": run_id, **evidence}
+    return {"run_id": run_id, "interaction_definition_id": interaction["id"], "interaction_version": interaction["version"], **evidence}
 
 
 @app.get("/api/sites/{site_id}/login-tests", tags=["authentication"])
@@ -989,6 +1098,8 @@ async def list_login_tests(site_id: str) -> dict:
                 "started_at": row["started_at"],
                 "completed_at": row["completed_at"],
                 "status": row["status"],
+                "interaction_definition_id": row["interaction_definition_id"],
+                "interaction_version": row["interaction_version"],
                 "evidence": sanitize_evidence(json.loads(row["evidence_json"])),
             }
             for row in rows

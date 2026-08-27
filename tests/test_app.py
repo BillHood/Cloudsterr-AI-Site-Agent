@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.17"}
+    assert response.json() == {"status": "ok", "version": "0.0.18"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -229,6 +229,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     )
     assert journey.status_code == 200
     assert journey.json()["execution_enabled"] is False
+    assert journey.json()["interaction_version"] == 1
     stored_journey = client.get(f"/api/sites/{site_id}/login-journey")
     assert stored_journey.json()["success_text"] == "Welcome"
     assert stored_journey.json()["success_mode"] == "path_and_text"
@@ -253,6 +254,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     login_test = client.post(f"/api/sites/{site_id}/login-test", json={"execution_confirmed": True})
     assert login_test.status_code == 200
     assert login_test.json()["status"] == "PASS"
+    assert login_test.json()["interaction_version"] == 1
     assert "test-user-value" not in login_test.text
     assert "test-password-value" not in login_test.text
 
@@ -293,7 +295,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.17</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.18</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -387,6 +389,36 @@ def test_authenticated_shell_check_requires_all_three_selectors() -> None:
         },
     )
     assert response.status_code == 422
+
+
+def test_login_interactions_are_immutable_and_versioned() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/public/login", "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD", "test_account_confirmed": True},
+    )
+    payload = {
+        "username_selector": "#email",
+        "password_selector": "#password",
+        "submit_selector": "button",
+        "success_path": "/public/dashboard",
+        "success_text": "",
+        "success_mode": "exact_path",
+        "approval_confirmed": True,
+    }
+    first = client.put(f"/api/sites/{site_id}/login-journey", json=payload)
+    identical = client.put(f"/api/sites/{site_id}/login-journey", json=payload)
+    changed = client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={**payload, "heading_selector": "h1", "main_selector": "main", "navigation_selector": "nav", "authenticated_shell_check": True},
+    )
+    assert first.json()["interaction_version"] == 1
+    assert identical.json()["interaction_version"] == 1
+    assert changed.json()["interaction_version"] == 2
+    versions = client.get(f"/api/sites/{site_id}/interactions").json()["interactions"]
+    assert [item["version"] for item in versions] == [2, 1]
+    assert versions[0]["supersedes_id"] == versions[1]["id"]
 
 
 def test_login_journey_rejects_broad_or_query_bearing_external_auth_url() -> None:

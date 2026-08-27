@@ -44,6 +44,7 @@ function renderLoginEvidence(runs) {
     card.append(heading);
     appendEvidenceDetail(card, "Time", new Date(run.completed_at).toLocaleString());
     appendEvidenceDetail(card, "Run ID", run.id);
+    appendEvidenceDetail(card, "Interaction version", run.interaction_version ? `Login v${run.interaction_version}` : "Legacy run");
     appendEvidenceDetail(card, "Final path", run.evidence.final_url ? new URL(run.evidence.final_url).pathname : "Not reached");
     appendEvidenceDetail(card, "Approved responses", (run.evidence.auth_responses || []).map((item) => `${item.status} ${item.hostname}${item.path}`).join("; ") || "None");
     if (run.evidence.shell_checks) {
@@ -373,7 +374,7 @@ async function openAuthentication(button) {
   }
   loginJourneyForm.elements.authenticated_shell_check.checked = Boolean(journey.authenticated_shell_check);
   loginJourneyForm.elements.approval_confirmed.checked = false;
-  loginJourneyMessage.textContent = journey.configured ? "Login definition approved. Execution remains disabled." : "No login definition is approved.";
+  loginJourneyMessage.textContent = journey.configured ? `Login interaction v${journey.interaction_version} approved. Execution remains disabled.` : "No login definition is approved.";
   loginTestButton.dataset.siteId = button.dataset.siteId;
   loginTestButton.dataset.siteName = button.dataset.siteName;
   loginTestButton.disabled = !(data.configured && journey.configured);
@@ -405,7 +406,7 @@ async function saveLoginJourney(event) {
     return;
   }
   loginJourneyMessage.classList.remove("error");
-  loginJourneyMessage.textContent = "Login definition approved. Execution remains disabled.";
+  loginJourneyMessage.textContent = `Login interaction v${data.interaction_version} approved. Execution remains disabled.`;
 }
 
 async function runLoginTest() {
