@@ -184,6 +184,15 @@ class ChatProbeApproval(BaseModel):
     approval_confirmed: bool
 
 
+class FredMonitorSchedule(BaseModel):
+    frequency: Literal["daily", "weekly"]
+    enabled: bool
+    monthly_limit: int = Field(ge=1, le=31)
+    exact_prompt_confirmed: bool = False
+    real_message_confirmed: bool = False
+    bounded_network_confirmed: bool = False
+
+
 FIXED_CHAT_PROBE = {
     "input_selector": "#fred-chat-input",
     "submit_selector": "form:has(#fred-chat-input) button[type='submit']",
@@ -465,6 +474,36 @@ def connect_database() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fred_monitor_schedules (
+            site_id TEXT PRIMARY KEY,
+            frequency TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            monthly_limit INTEGER NOT NULL,
+            next_run_at TEXT,
+            approved_at TEXT,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fred_monitor_runs (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            status TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS one_running_fred_monitor_per_site ON fred_monitor_runs(site_id) WHERE status = 'RUNNING'"
+    )
     existing_journeys = connection.execute("SELECT * FROM login_journeys").fetchall()
     for journey in existing_journeys:
         existing_definition = connection.execute(
@@ -532,6 +571,57 @@ def next_scheduled_time(frequency: str, from_time: datetime | None = None) -> da
     return current + delta
 
 
+async def run_scheduled_fred_monitor(site_id: str) -> dict:
+    now = datetime.now(UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    with closing(connect_database()) as connection:
+        schedule = connection.execute("SELECT * FROM fred_monitor_schedules WHERE site_id = ?", (site_id,)).fetchone()
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
+        if schedule is None or not schedule["enabled"]:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The Fred monitor is disabled.")
+        if site is None or profile is None or login is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approved site authentication is required for the Fred monitor.")
+        monthly_count = connection.execute(
+            "SELECT COUNT(*) FROM fred_monitor_runs WHERE site_id = ? AND started_at >= ?",
+            (site_id, month_start),
+        ).fetchone()[0]
+        if monthly_count >= schedule["monthly_limit"]:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The Fred monitor monthly run limit has been reached.")
+        username = os.environ.get(profile["username_env"])
+        password = os.environ.get(profile["password_env"])
+        if not username or not password:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configured test credentials are unavailable.")
+        run_id = str(uuid4())
+        started_at = now.isoformat()
+        try:
+            connection.execute(
+                "INSERT INTO fred_monitor_runs (id, site_id, started_at, completed_at, status, evidence_json) VALUES (?, ?, ?, NULL, 'RUNNING', '{}')",
+                (run_id, site_id, started_at),
+            )
+            connection.commit()
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A Fred monitor run is already active.") from error
+    try:
+        evidence = await execute_approved_login(
+            approved_login_from_records(site, profile, login), username, password,
+            collect_control_inventory=True, chat_probe=FRED_ONLINE_CHECK, capture_latest_response=True,
+        )
+    except Exception as error:
+        evidence = {"status": "BLOCKED", "outcome": "EXECUTION_BLOCKED", "failure": type(error).__name__, "chat_message_submitted": False}
+    evidence["page_text_captured"] = evidence.get("latest_response") is not None
+    evidence["visible_errors"] = []
+    completed_at = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        connection.execute(
+            "UPDATE fred_monitor_runs SET completed_at = ?, status = ?, evidence_json = ? WHERE id = ?",
+            (completed_at, evidence["status"], json.dumps(evidence), run_id),
+        )
+        connection.commit()
+    return {"run_id": run_id, **evidence}
+
+
 async def scheduler_loop() -> None:
     while True:
         now = datetime.now(UTC)
@@ -540,15 +630,27 @@ async def scheduler_loop() -> None:
                 "SELECT site_id, frequency FROM schedules WHERE enabled = 1 AND next_run_at <= ?",
                 (now.isoformat(),),
             ).fetchall()
+            due_fred = connection.execute(
+                "SELECT site_id, frequency FROM fred_monitor_schedules WHERE enabled = 1 AND next_run_at <= ?",
+                (now.isoformat(),),
+            ).fetchall()
             for schedule in due:
                 connection.execute(
                     "UPDATE schedules SET next_run_at = ?, updated_at = ? WHERE site_id = ?",
+                    (next_scheduled_time(schedule["frequency"], now).isoformat(), now.isoformat(), schedule["site_id"]),
+                )
+            for schedule in due_fred:
+                connection.execute(
+                    "UPDATE fred_monitor_schedules SET next_run_at = ?, updated_at = ? WHERE site_id = ?",
                     (next_scheduled_time(schedule["frequency"], now).isoformat(), now.isoformat(), schedule["site_id"]),
                 )
             connection.commit()
         for schedule in due:
             with suppress(HTTPException, Exception):
                 await run_approved_baseline(schedule["site_id"])
+        for schedule in due_fred:
+            with suppress(HTTPException, Exception):
+                await run_scheduled_fred_monitor(schedule["site_id"])
         await asyncio.sleep(30)
 
 
@@ -564,7 +666,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.1.0",
+    version="0.1.1",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -1593,3 +1695,73 @@ async def run_fred_online_check_once(site_id: str, request: LoginExecutionReques
         )
         connection.commit()
     return {"run_id": run_id, "probe_version": 4, **evidence}
+
+
+@app.get("/api/sites/{site_id}/fred-monitor-schedule", tags=["schedules"])
+async def get_fred_monitor_schedule(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        row = connection.execute("SELECT * FROM fred_monitor_schedules WHERE site_id = ?", (site_id,)).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    if row is None:
+        return {"site_id": site_id, "frequency": "weekly", "enabled": False, "monthly_limit": 4, "next_run_at": None, "prompt": FRED_ONLINE_CHECK["message"]}
+    return {
+        "site_id": site_id,
+        "frequency": row["frequency"],
+        "enabled": bool(row["enabled"]),
+        "monthly_limit": row["monthly_limit"],
+        "next_run_at": row["next_run_at"],
+        "prompt": FRED_ONLINE_CHECK["message"],
+    }
+
+
+@app.put("/api/sites/{site_id}/fred-monitor-schedule", tags=["schedules"])
+async def save_fred_monitor_schedule(site_id: str, schedule: FredMonitorSchedule) -> dict:
+    if schedule.enabled and not all((schedule.exact_prompt_confirmed, schedule.real_message_confirmed, schedule.bounded_network_confirmed)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Enabling requires confirmation of the exact prompt, recurring real-message impact, monthly cap, and bounded network permissions.",
+        )
+    now = datetime.now(UTC)
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT site_id FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        login = connection.execute("SELECT id FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        if schedule.enabled and (profile is None or login is None):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approved authentication is required before enabling the Fred monitor.")
+        next_run_at = next_scheduled_time(schedule.frequency, now).isoformat() if schedule.enabled else None
+        approved_at = now.isoformat() if schedule.enabled else None
+        connection.execute(
+            """
+            INSERT INTO fred_monitor_schedules (site_id, frequency, enabled, monthly_limit, next_run_at, approved_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(site_id) DO UPDATE SET
+                frequency = excluded.frequency,
+                enabled = excluded.enabled,
+                monthly_limit = excluded.monthly_limit,
+                next_run_at = excluded.next_run_at,
+                approved_at = excluded.approved_at,
+                updated_at = excluded.updated_at
+            """,
+            (site_id, schedule.frequency, int(schedule.enabled), schedule.monthly_limit, next_run_at, approved_at, now.isoformat()),
+        )
+        connection.commit()
+    return {"site_id": site_id, "frequency": schedule.frequency, "enabled": schedule.enabled, "monthly_limit": schedule.monthly_limit, "next_run_at": next_run_at, "prompt": FRED_ONLINE_CHECK["message"]}
+
+
+@app.get("/api/sites/{site_id}/fred-monitor-runs", tags=["schedules"])
+async def list_fred_monitor_runs(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        rows = connection.execute("SELECT * FROM fred_monitor_runs WHERE site_id = ? ORDER BY started_at DESC", (site_id,)).fetchall()
+    return {
+        "runs": [
+            {
+                "id": row["id"], "started_at": row["started_at"], "completed_at": row["completed_at"],
+                "status": row["status"], "evidence": sanitize_evidence(json.loads(row["evidence_json"])),
+            }
+            for row in rows
+        ]
+    }

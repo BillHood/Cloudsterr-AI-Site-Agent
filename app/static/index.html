@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.1.0</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.1.1</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.1.0 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.1.1 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -137,6 +137,22 @@
         <p class="section-copy">Single-use exact prompt: <code>Hi Fred, Cloudsterr AI Site Agent - checking in?</code> PASS requires a new, non-empty assistant response in the same browser session. Historical thread persistence is not tested.</p>
         <button id="fred-online-button" class="run-button" type="button">Check Fred brain once</button>
         <p id="fred-online-message" class="status-message" aria-live="polite">This check submits one real message and may consume Sahara usage.</p>
+        <div class="journey-divider"></div>
+        <h3>Automated Fred monitor</h3>
+        <p class="section-copy">Disabled by default. Each scheduled run sends the same real prompt, may create a Sahara conversation record, and consumes quota. Weekly with four runs per month is the recommended starting limit.</p>
+        <form id="fred-monitor-form">
+          <div class="form-grid">
+            <label>Frequency<select name="frequency"><option value="weekly">Weekly</option><option value="daily">Daily</option></select></label>
+            <label>Maximum runs per month<input name="monthly_limit" type="number" min="1" max="31" value="4" required></label>
+          </div>
+          <label class="confirmation"><input name="enabled" type="checkbox"><span>Enable recurring Fred brain checks.</span></label>
+          <label class="confirmation"><input name="exact_prompt_confirmed" type="checkbox"><span>I approve the exact recurring prompt: <code>Hi Fred, Cloudsterr AI Site Agent - checking in?</code></span></label>
+          <label class="confirmation"><input name="real_message_confirmed" type="checkbox"><span>I understand each run sends and may store a real message and consume Sahara usage.</span></label>
+          <label class="confirmation"><input name="bounded_network_confirmed" type="checkbox"><span>I approve the existing bounded Firestore and same-origin Gemini requests for each scheduled run, subject to the monthly cap.</span></label>
+          <button class="primary-button" type="submit">Save Fred monitor</button>
+          <p id="fred-monitor-message" class="status-message" aria-live="polite"></p>
+        </form>
+        <div id="fred-monitor-history" aria-live="polite"></div>
       </section>
 
       <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>

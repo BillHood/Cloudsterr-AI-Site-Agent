@@ -34,6 +34,9 @@ const chatProbeFinalButton = document.querySelector("#chat-probe-final-button");
 const chatProbeFinalMessage = document.querySelector("#chat-probe-final-message");
 const fredOnlineButton = document.querySelector("#fred-online-button");
 const fredOnlineMessage = document.querySelector("#fred-online-message");
+const fredMonitorForm = document.querySelector("#fred-monitor-form");
+const fredMonitorMessage = document.querySelector("#fred-monitor-message");
+const fredMonitorHistory = document.querySelector("#fred-monitor-history");
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -467,6 +470,7 @@ async function openAuthentication(button) {
   await loadLoginEvidence(button.dataset.siteId);
   await loadInteractionVersions(button.dataset.siteId);
   await loadChatInventories(button.dataset.siteId);
+  await loadFredMonitor(button.dataset.siteId);
   document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
   authenticationPanel.hidden = false;
   authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
@@ -667,6 +671,62 @@ async function runFredOnlineCheck() {
   }
 }
 
+function renderFredMonitorRuns(runs) {
+  fredMonitorHistory.replaceChildren();
+  for (const run of runs.slice(0, 5)) {
+    const card = document.createElement("article");
+    card.className = `run-card result-${run.status.toLowerCase()}`;
+    const heading = document.createElement("h4");
+    heading.textContent = `${run.status} · ${new Date(run.started_at).toLocaleString()}`;
+    card.append(heading);
+    appendEvidenceDetail(card, "Message submitted", run.evidence.chat_message_submitted ? "yes" : "no");
+    appendEvidenceDetail(card, "Response", run.evidence.latest_response || "No response captured");
+    fredMonitorHistory.append(card);
+  }
+}
+
+async function loadFredMonitor(siteId) {
+  const [scheduleResponse, runsResponse] = await Promise.all([
+    fetch(`/api/sites/${siteId}/fred-monitor-schedule`, {headers: {Accept: "application/json"}}),
+    fetch(`/api/sites/${siteId}/fred-monitor-runs`, {headers: {Accept: "application/json"}}),
+  ]);
+  const schedule = await scheduleResponse.json();
+  const runs = await runsResponse.json();
+  if (!scheduleResponse.ok) throw new Error(formatApiError(schedule, "Fred monitor schedule could not be loaded."));
+  fredMonitorForm.dataset.siteId = siteId;
+  fredMonitorForm.elements.frequency.value = schedule.frequency;
+  fredMonitorForm.elements.monthly_limit.value = schedule.monthly_limit;
+  fredMonitorForm.elements.enabled.checked = schedule.enabled;
+  for (const name of ["exact_prompt_confirmed", "real_message_confirmed", "bounded_network_confirmed"]) fredMonitorForm.elements[name].checked = false;
+  fredMonitorMessage.textContent = schedule.enabled && schedule.next_run_at ? `Enabled. Next run: ${new Date(schedule.next_run_at).toLocaleString()}` : "Automated Fred monitoring is disabled.";
+  renderFredMonitorRuns(runs.runs || []);
+}
+
+async function saveFredMonitor(event) {
+  event.preventDefault();
+  const formData = new FormData(fredMonitorForm);
+  const enabled = formData.get("enabled") === "on";
+  if (!window.confirm(enabled ? "Enable recurring real Fred messages with this frequency and monthly cap?" : "Disable all future automated Fred checks?")) return;
+  const response = await fetch(`/api/sites/${fredMonitorForm.dataset.siteId}/fred-monitor-schedule`, {
+    method: "PUT",
+    headers: {"Content-Type": "application/json", Accept: "application/json"},
+    body: JSON.stringify({
+      frequency: formData.get("frequency"), monthly_limit: Number(formData.get("monthly_limit")), enabled,
+      exact_prompt_confirmed: formData.get("exact_prompt_confirmed") === "on",
+      real_message_confirmed: formData.get("real_message_confirmed") === "on",
+      bounded_network_confirmed: formData.get("bounded_network_confirmed") === "on",
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    fredMonitorMessage.classList.add("error");
+    fredMonitorMessage.textContent = formatApiError(data, "Fred monitor could not be saved.");
+    return;
+  }
+  fredMonitorMessage.classList.remove("error");
+  fredMonitorMessage.textContent = data.enabled ? `Enabled. Next run: ${new Date(data.next_run_at).toLocaleString()}` : "Disabled. No future Fred messages will be sent.";
+}
+
 async function saveAuthentication(event) {
   event.preventDefault();
   const formData = new FormData(authenticationForm);
@@ -784,4 +844,5 @@ chatResponseButton.addEventListener("click", captureFixedChatResponse);
 chatProbeRetryButton.addEventListener("click", runFixedChatProbeRetry);
 chatProbeFinalButton.addEventListener("click", runFixedChatProbeFinal);
 fredOnlineButton.addEventListener("click", runFredOnlineCheck);
+fredMonitorForm.addEventListener("submit", saveFredMonitor);
 loadSites();
