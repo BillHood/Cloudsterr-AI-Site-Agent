@@ -184,7 +184,13 @@ class ApprovedLogin:
         )
 
 
-async def execute_approved_login(login: ApprovedLogin, username: str, password: str, collect_control_inventory: bool = False) -> dict:
+async def execute_approved_login(
+    login: ApprovedLogin,
+    username: str,
+    password: str,
+    collect_control_inventory: bool = False,
+    chat_probe: dict | None = None,
+) -> dict:
     """Execute exactly one approved login submission and return sanitized evidence."""
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
@@ -196,6 +202,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
         blocked_requests: list[dict] = []
         auth_responses: list[dict] = []
         inventory_navigation_matches = None
+        probe_write_window = False
 
         def record_auth_response(response) -> None:
             if response.request.method == "POST" and login.permits_auth_submission(response.url):
@@ -242,7 +249,15 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 and request.resource_type in {"fetch", "xhr"}
                 and login.permits_firestore_listen(request.url)
             )
-            if request.method == "POST" and (approved_document_post or approved_external_auth_post or approved_firestore_listen):
+            approved_firestore_write = (
+                probe_write_window
+                and request.method == "POST"
+                and request.resource_type in {"fetch", "xhr"}
+                and urlparse(request.url).scheme == "https"
+                and urlparse(request.url).hostname == "firestore.googleapis.com"
+                and urlparse(request.url).path.rstrip("/").endswith("/Write/channel")
+            )
+            if request.method == "POST" and (approved_document_post or approved_external_auth_post or approved_firestore_listen or approved_firestore_write):
                 if approved_document_post:
                     document_submission_used = True
                 if auth_endpoint is not None:
@@ -301,6 +316,19 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 stage = "INVENTORY_CONTROLS_PENDING"
                 await page.locator(editable_selector).first.wait_for(state="attached", timeout=10_000)
                 stage = "INVENTORY_CONTROLS_READY"
+                probe_submitted = False
+                probe_input_cleared = None
+                if chat_probe:
+                    probe_input = page.locator(chat_probe["input_selector"]).first
+                    await probe_input.fill(chat_probe["message"], timeout=5_000)
+                    stage = "CHAT_PROBE_FILLED"
+                    probe_write_window = True
+                    await page.locator(chat_probe["submit_selector"]).first.click(timeout=5_000)
+                    probe_submitted = True
+                    stage = "CHAT_PROBE_SUBMITTED"
+                    await page.wait_for_timeout(5_000)
+                    probe_write_window = False
+                    probe_input_cleared = await probe_input.evaluate("element => element.value.length === 0")
                 raw_controls = await page.locator(control_selector).evaluate_all(
                     """elements => elements.map(element => ({
                         tag: element.tagName.toLowerCase(),
@@ -337,6 +365,9 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 visible_errors=visible_errors,
                 auth_responses=auth_responses,
             )
+            if chat_probe:
+                status = "PASS" if probe_submitted and probe_input_cleared else "FAIL"
+                outcome = "CHAT_PROBE_ACCEPTED" if status == "PASS" else "CHAT_PROBE_NOT_ACCEPTED"
             return {
                 "status": status,
                 "outcome": outcome,
@@ -347,6 +378,8 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "shell_checks": shell_checks,
                 "control_inventory": control_inventory,
                 "inventory_navigation_matches": inventory_navigation_matches,
+                "chat_message_submitted": probe_submitted if chat_probe else False,
+                "probe_input_cleared": probe_input_cleared if chat_probe else None,
                 "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],

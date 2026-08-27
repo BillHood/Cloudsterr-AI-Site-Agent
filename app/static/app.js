@@ -24,6 +24,8 @@ const interactionVersions = document.querySelector("#interaction-versions");
 const chatInventoryButton = document.querySelector("#chat-inventory-button");
 const chatInventoryMessage = document.querySelector("#chat-inventory-message");
 const chatInventoryEvidence = document.querySelector("#chat-inventory-evidence");
+const chatProbeButton = document.querySelector("#chat-probe-button");
+const chatProbeMessage = document.querySelector("#chat-probe-message");
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -540,6 +542,28 @@ async function runChatInventory() {
   }
 }
 
+async function runFixedChatProbe() {
+  const exactMessage = "Cloudsterr functional check. Please reply with READY.";
+  if (!window.confirm(`Submit this exact message once to Fred?\n\n${exactMessage}\n\nThe approval is single-use and may consume Sahara usage.`)) return;
+  chatProbeButton.disabled = true;
+  chatProbeMessage.classList.remove("error");
+  chatProbeMessage.textContent = "Running the one-time approved Fred probe…";
+  try {
+    const response = await fetch(`/api/sites/${chatInventoryButton.dataset.siteId}/fixed-chat-probe-once`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: JSON.stringify({execution_confirmed: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(formatApiError(data, "The one-time probe could not run."));
+    chatProbeMessage.classList.toggle("error", data.status !== "PASS");
+    chatProbeMessage.textContent = `Probe ${data.status}. Message submitted: ${data.chat_message_submitted ? "yes" : "no"}; input cleared: ${data.probe_input_cleared ? "yes" : "no"}. No response text was captured.`;
+  } catch (error) {
+    chatProbeMessage.classList.add("error");
+    chatProbeMessage.textContent = error.message;
+  }
+}
+
 async function saveAuthentication(event) {
   event.preventDefault();
   const formData = new FormData(authenticationForm);
@@ -652,4 +676,5 @@ authenticationForm.addEventListener("submit", saveAuthentication);
 loginJourneyForm.addEventListener("submit", saveLoginJourney);
 loginTestButton.addEventListener("click", runLoginTest);
 chatInventoryButton.addEventListener("click", runChatInventory);
+chatProbeButton.addEventListener("click", runFixedChatProbe);
 loadSites();

@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.28"}
+    assert response.json() == {"status": "ok", "version": "0.0.29"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -309,7 +309,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.28</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.29</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -598,3 +598,43 @@ def test_chat_inventory_requires_confirmation_and_submits_no_message(monkeypatch
     assert stored[0]["evidence"]["control_inventory"][0]["id"] == "chat-input"
     assert "inventory-password" not in str(stored)
     assert "must be removed" not in str(stored)
+
+
+def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/public/login", "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD", "test_account_confirmed": True},
+    )
+    client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={
+            "username_selector": "#email", "password_selector": "#password", "submit_selector": "button",
+            "success_path": "/public/dashboard", "success_text": "", "success_mode": "exact_path",
+            "inventory_navigation_selector": ".nav", "inventory_destination_path": "/public/fred",
+            "firestore_listen_enabled": True, "firestore_listen_get_enabled": True,
+            "revenuecat_subscriber_get_enabled": True, "approval_confirmed": True,
+        },
+    )
+    monkeypatch.setenv("TEST_USERNAME", "probe-user")
+    monkeypatch.setenv("TEST_PASSWORD", "probe-password")
+
+    async def fake_probe(_approved, _username, _password, collect_control_inventory=False, chat_probe=None):
+        assert collect_control_inventory is True
+        assert chat_probe == {
+            "input_selector": "#fred-chat-input",
+            "submit_selector": "form:has(#fred-chat-input) button[type='submit']",
+            "message": "Cloudsterr functional check. Please reply with READY.",
+            "firestore_write_confirmed": True,
+        }
+        return {"status": "PASS", "outcome": "CHAT_PROBE_ACCEPTED", "chat_message_submitted": True, "probe_input_cleared": True, "blocked_requests": [], "auth_responses": []}
+
+    monkeypatch.setattr("app.main.execute_approved_login", fake_probe)
+    missing_confirmation = client.post(f"/api/sites/{site_id}/fixed-chat-probe-once", json={"execution_confirmed": False})
+    first = client.post(f"/api/sites/{site_id}/fixed-chat-probe-once", json={"execution_confirmed": True})
+    second = client.post(f"/api/sites/{site_id}/fixed-chat-probe-once", json={"execution_confirmed": True})
+    assert missing_confirmation.status_code == 422
+    assert first.status_code == 200
+    assert first.json()["chat_message_submitted"] is True
+    assert second.status_code == 409

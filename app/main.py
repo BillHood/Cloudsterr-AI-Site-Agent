@@ -179,6 +179,19 @@ class LoginExecutionRequest(BaseModel):
     execution_confirmed: bool
 
 
+class ChatProbeApproval(BaseModel):
+    firestore_write_confirmed: bool
+    approval_confirmed: bool
+
+
+FIXED_CHAT_PROBE = {
+    "input_selector": "#fred-chat-input",
+    "submit_selector": "form:has(#fred-chat-input) button[type='submit']",
+    "message": "Cloudsterr functional check. Please reply with READY.",
+    "firestore_write_confirmed": True,
+}
+
+
 LOGIN_DEFINITION_FIELDS = (
     "username_selector", "password_selector", "submit_selector", "success_path", "success_text",
     "success_mode", "authenticated_shell_check", "main_selector", "heading_selector",
@@ -410,6 +423,23 @@ def connect_database() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chat_probe_runs (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            login_interaction_definition_id TEXT NOT NULL,
+            probe_interaction_definition_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id),
+            FOREIGN KEY (login_interaction_definition_id) REFERENCES interaction_definitions(id),
+            FOREIGN KEY (probe_interaction_definition_id) REFERENCES interaction_definitions(id)
+        )
+        """
+    )
     existing_journeys = connection.execute("SELECT * FROM login_journeys").fetchall()
     for journey in existing_journeys:
         existing_definition = connection.execute(
@@ -509,7 +539,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.28",
+    version="0.0.29",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -1285,3 +1315,54 @@ async def list_chat_inventories(site_id: str) -> dict:
             for row in rows
         ]
     }
+
+
+@app.post("/api/sites/{site_id}/fixed-chat-probe-once", tags=["authentication"])
+async def run_fixed_chat_probe_once(site_id: str, request: LoginExecutionRequest) -> dict:
+    if not request.execution_confirmed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Explicit confirmation of the exact one-time probe is required.")
+    definition_json = json.dumps(FIXED_CHAT_PROBE, sort_keys=True)
+    run_id = f"fixed-chat-probe-v1-{site_id}"
+    started_at = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        if profile is None or login is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approved authentication is required.")
+        username = os.environ.get(profile["username_env"])
+        password = os.environ.get(profile["password_env"])
+        if not username or not password:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configured test credentials are unavailable; the one-time probe was not reserved or submitted.")
+        probe = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'chat_probe' AND definition_json = ?", (site_id, definition_json)).fetchone()
+        if probe is None:
+            probe_id = str(uuid4())
+            connection.execute(
+                "INSERT INTO interaction_definitions (id, site_id, interaction_type, version, definition_json, approved_at, supersedes_id) VALUES (?, ?, 'chat_probe', 1, ?, ?, NULL)",
+                (probe_id, site_id, definition_json, started_at),
+            )
+            probe = connection.execute("SELECT * FROM interaction_definitions WHERE id = ?", (probe_id,)).fetchone()
+        try:
+            connection.execute(
+                "INSERT INTO chat_probe_runs (id, site_id, login_interaction_definition_id, probe_interaction_definition_id, started_at, completed_at, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?, 'RUNNING', '{}')",
+                (run_id, site_id, login["id"], probe["id"], started_at, started_at),
+            )
+            connection.commit()
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This exact probe approval has already been consumed; it cannot be submitted again.") from error
+    evidence = await execute_approved_login(
+        approved_login_from_records(site, profile, login), username, password,
+        collect_control_inventory=True, chat_probe=FIXED_CHAT_PROBE,
+    )
+    evidence["page_text_captured"] = False
+    evidence["visible_errors"] = []
+    completed_at = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        connection.execute(
+            "UPDATE chat_probe_runs SET completed_at = ?, status = ?, evidence_json = ? WHERE id = ?",
+            (completed_at, evidence["status"], json.dumps(evidence), run_id),
+        )
+        connection.commit()
+    return {"run_id": run_id, "probe_version": 1, **evidence}
