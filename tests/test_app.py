@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.13"}
+    assert response.json() == {"status": "ok", "version": "0.0.14"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -218,6 +218,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
             "success_path": "/public/dashboard",
             "success_text": "Welcome",
             "external_auth_url": "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
+            "external_followup_url": "https://identitytoolkit.googleapis.com/v1/accounts:lookup",
             "approval_confirmed": True,
         },
     )
@@ -226,6 +227,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     stored_journey = client.get(f"/api/sites/{site_id}/login-journey")
     assert stored_journey.json()["success_text"] == "Welcome"
     assert stored_journey.json()["external_auth_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
+    assert stored_journey.json()["external_followup_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:lookup"
 
     monkeypatch.setenv("CLOUDSTERR_TEST_USERNAME", "test-user-value")
     monkeypatch.setenv("CLOUDSTERR_TEST_PASSWORD", "test-password-value")
@@ -233,6 +235,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     async def fake_login(approved, username, password):
         assert approved.success_path == "/public/dashboard"
         assert approved.external_auth_url == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
+        assert approved.external_followup_url == "https://identitytoolkit.googleapis.com/v1/accounts:lookup"
         assert username == "test-user-value"
         assert password == "test-password-value"
         return {"status": "PASS", "final_url": "https://example.com/public/dashboard", "path_matches": True, "text_matches": True, "submission_count": 1}
@@ -281,7 +284,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.13</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.14</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -313,11 +316,13 @@ def test_external_auth_boundary_allows_only_exact_https_endpoint() -> None:
         success_path="/dashboard",
         success_text="Welcome",
         external_auth_url="https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
+        external_followup_url="https://identitytoolkit.googleapis.com/v1/accounts:lookup",
     )
     assert login.permits_auth_submission(
         "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=redacted"
     )
     assert not login.permits_auth_submission("https://identitytoolkit.googleapis.com/v1/accounts:delete")
+    assert login.permits_auth_submission("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=redacted")
     assert not login.permits_auth_submission("https://securetoken.googleapis.com/v1/token")
     assert not login.permits_auth_submission("http://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword")
 
@@ -339,6 +344,14 @@ def test_login_journey_rejects_broad_or_query_bearing_external_auth_url() -> Non
     }
     assert client.put(f"/api/sites/{site_id}/login-journey", json={**base_payload, "external_auth_url": "https://identity.example"}).status_code == 422
     assert client.put(f"/api/sites/{site_id}/login-journey", json={**base_payload, "external_auth_url": "https://identity.example/v1/login?key=secret"}).status_code == 422
+    assert client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={
+            **base_payload,
+            "external_auth_url": "https://identity.example/v1/login",
+            "external_followup_url": "https://identity.example/v1/login",
+        },
+    ).status_code == 422
 
 
 def test_blocked_request_evidence_excludes_query_and_fragment() -> None:

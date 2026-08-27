@@ -327,7 +327,7 @@ async function openAuthentication(button) {
   const journey = await journeyResponse.json();
   loginJourneyForm.dataset.siteId = button.dataset.siteId;
   loginJourneyForm.dataset.siteName = button.dataset.siteName;
-  for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text", "external_auth_url"]) {
+  for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text", "external_auth_url", "external_followup_url"]) {
     loginJourneyForm.elements[name].value = journey[name] || "";
   }
   loginJourneyForm.elements.approval_confirmed.checked = false;
@@ -347,6 +347,7 @@ async function saveLoginJourney(event) {
   if (!window.confirm(`Approve this exact login definition for ${loginJourneyForm.dataset.siteName}? It will not be executed.`)) return;
   const payload = Object.fromEntries(formData.entries());
   payload.external_auth_url = payload.external_auth_url || null;
+  payload.external_followup_url = payload.external_followup_url || null;
   payload.approval_confirmed = formData.get("approval_confirmed") === "on";
   const response = await fetch(`/api/sites/${loginJourneyForm.dataset.siteId}/login-journey`, {
     method: "PUT",

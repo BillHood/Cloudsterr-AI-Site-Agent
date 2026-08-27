@@ -12,7 +12,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.discovery import DiscoveryBoundary, discover
@@ -113,6 +113,7 @@ class LoginJourney(BaseModel):
     success_path: str = Field(min_length=1, max_length=500)
     success_text: str = Field(min_length=1, max_length=300)
     external_auth_url: HttpUrl | None = None
+    external_followup_url: HttpUrl | None = None
     approval_confirmed: bool
 
     @field_validator("username_selector", "password_selector", "submit_selector", "success_text")
@@ -128,7 +129,7 @@ class LoginJourney(BaseModel):
             raise ValueError("Success path must be a site-relative path beginning with /")
         return value
 
-    @field_validator("external_auth_url")
+    @field_validator("external_auth_url", "external_followup_url")
     @classmethod
     def validate_external_auth_url(cls, value: HttpUrl | None) -> HttpUrl | None:
         if value is None:
@@ -138,6 +139,15 @@ class LoginJourney(BaseModel):
         if value.path in (None, "", "/"):
             raise ValueError("External authentication URL must include the exact endpoint path")
         return value
+
+    @model_validator(mode="after")
+    def require_distinct_external_endpoints(self):
+        if self.external_auth_url and self.external_followup_url:
+            primary = str(self.external_auth_url).rstrip("/")
+            followup = str(self.external_followup_url).rstrip("/")
+            if primary == followup:
+                raise ValueError("Primary and post-login endpoints must be distinct")
+        return self
 
 
 class LoginExecutionRequest(BaseModel):
@@ -193,6 +203,7 @@ def connect_database() -> sqlite3.Connection:
             success_path TEXT NOT NULL,
             success_text TEXT NOT NULL,
             external_auth_url TEXT,
+            external_followup_url TEXT,
             approved_at TEXT NOT NULL,
             execution_enabled INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (site_id) REFERENCES sites(id),
@@ -203,6 +214,8 @@ def connect_database() -> sqlite3.Connection:
     login_journey_columns = {row[1] for row in connection.execute("PRAGMA table_info(login_journeys)")}
     if "external_auth_url" not in login_journey_columns:
         connection.execute("ALTER TABLE login_journeys ADD COLUMN external_auth_url TEXT")
+    if "external_followup_url" not in login_journey_columns:
+        connection.execute("ALTER TABLE login_journeys ADD COLUMN external_followup_url TEXT")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS authentication_profiles (
@@ -339,7 +352,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.13",
+    version="0.0.14",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -796,6 +809,7 @@ async def get_login_journey(site_id: str) -> dict:
         "success_path": row["success_path"],
         "success_text": row["success_text"],
         "external_auth_url": row["external_auth_url"] or "",
+        "external_followup_url": row["external_followup_url"] or "",
         "approved_at": row["approved_at"],
         "execution_enabled": False,
     }
@@ -823,8 +837,8 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
             """
             INSERT INTO login_journeys (
                 site_id, username_selector, password_selector, submit_selector,
-                success_path, success_text, external_auth_url, approved_at, execution_enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                success_path, success_text, external_auth_url, external_followup_url, approved_at, execution_enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(site_id) DO UPDATE SET
                 username_selector = excluded.username_selector,
                 password_selector = excluded.password_selector,
@@ -832,6 +846,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 success_path = excluded.success_path,
                 success_text = excluded.success_text,
                 external_auth_url = excluded.external_auth_url,
+                external_followup_url = excluded.external_followup_url,
                 approved_at = excluded.approved_at,
                 execution_enabled = 0
             """,
@@ -843,6 +858,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 journey.success_path,
                 journey.success_text,
                 str(journey.external_auth_url) if journey.external_auth_url else None,
+                str(journey.external_followup_url) if journey.external_followup_url else None,
                 approved_at,
             ),
         )
@@ -854,6 +870,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         "success_path": journey.success_path,
         "success_text": journey.success_text,
         "external_auth_url": str(journey.external_auth_url) if journey.external_auth_url else "",
+        "external_followup_url": str(journey.external_followup_url) if journey.external_followup_url else "",
     }
 
 
@@ -889,6 +906,7 @@ async def run_login_test(site_id: str, request: LoginExecutionRequest) -> dict:
         success_path=journey["success_path"],
         success_text=journey["success_text"],
         external_auth_url=journey["external_auth_url"],
+        external_followup_url=journey["external_followup_url"],
     )
     run_id = str(uuid4())
     started_at = datetime.now(UTC).isoformat()

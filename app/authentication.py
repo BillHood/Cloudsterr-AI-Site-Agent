@@ -68,6 +68,7 @@ class ApprovedLogin:
     success_path: str
     success_text: str
     external_auth_url: str | None = None
+    external_followup_url: str | None = None
 
     @property
     def origin(self) -> str:
@@ -84,17 +85,23 @@ class ApprovedLogin:
             return False
         return not any(path == item or path.startswith(f"{item.rstrip('/')}/") for item in self.excluded_paths)
 
-    def permits_auth_submission(self, url: str) -> bool:
-        if not self.external_auth_url:
-            return False
+    @staticmethod
+    def _endpoint_key(url: str) -> tuple[str, str, int, str]:
+        parsed = urlparse(url)
+        return (parsed.scheme, parsed.hostname or "", parsed.port or 443, parsed.path.rstrip("/"))
+
+    def approved_auth_endpoint(self, url: str) -> tuple[str, str, int, str] | None:
         requested = urlparse(url)
-        approved = urlparse(self.external_auth_url)
-        return (
-            requested.scheme == approved.scheme == "https"
-            and requested.hostname == approved.hostname
-            and (requested.port or 443) == (approved.port or 443)
-            and requested.path.rstrip("/") == approved.path.rstrip("/")
-        )
+        requested_key = self._endpoint_key(url)
+        if requested.scheme != "https":
+            return None
+        for endpoint in (self.external_auth_url, self.external_followup_url):
+            if endpoint and requested_key == self._endpoint_key(endpoint):
+                return requested_key
+        return None
+
+    def permits_auth_submission(self, url: str) -> bool:
+        return self.approved_auth_endpoint(url) is not None
 
 
 async def execute_approved_login(login: ApprovedLogin, username: str, password: str) -> dict:
@@ -103,7 +110,8 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
         browser = await playwright.chromium.launch(headless=True)
         context = await browser.new_context(service_workers="block")
         page = await context.new_page()
-        submission_used = False
+        document_submission_used = False
+        used_auth_endpoints: set[tuple[str, str, int, str]] = set()
         stage = "BROWSER_STARTED"
         blocked_requests: list[dict] = []
         auth_responses: list[dict] = []
@@ -122,16 +130,20 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
         page.on("response", record_auth_response)
 
         async def enforce(route: Route, request: Request) -> None:
-            nonlocal submission_used
+            nonlocal document_submission_used
             same_origin = urlparse(request.url).netloc == urlparse(login.base_url).netloc
             permitted = same_origin and login.permitted_url(request.url)
             if request.method in {"GET", "HEAD"} and permitted:
                 await route.continue_()
                 return
-            approved_document_post = request.resource_type == "document" and permitted
-            approved_external_auth_post = request.resource_type in {"fetch", "xhr"} and login.permits_auth_submission(request.url)
-            if request.method == "POST" and (approved_document_post or approved_external_auth_post) and not submission_used:
-                submission_used = True
+            approved_document_post = request.resource_type == "document" and permitted and not document_submission_used
+            auth_endpoint = login.approved_auth_endpoint(request.url) if request.resource_type in {"fetch", "xhr"} else None
+            approved_external_auth_post = auth_endpoint is not None and auth_endpoint not in used_auth_endpoints
+            if request.method == "POST" and (approved_document_post or approved_external_auth_post):
+                if approved_document_post:
+                    document_submission_used = True
+                if auth_endpoint is not None:
+                    used_auth_endpoints.add(auth_endpoint)
                 await route.continue_()
                 return
             blocked = sanitized_request_evidence(request.url, request.method, request.resource_type)
@@ -162,7 +174,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             status, outcome = classify_login_result(
                 path_matches=path_matches,
                 text_matches=text_matches,
-                submission_used=submission_used,
+                submission_used=document_submission_used or bool(used_auth_endpoints),
                 blocked_requests=blocked_requests,
                 visible_errors=visible_errors,
                 auth_responses=auth_responses,
@@ -174,7 +186,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "final_url": _safe_page_url(final_url, login.origin),
                 "path_matches": path_matches,
                 "text_matches": text_matches,
-                "submission_count": 1 if submission_used else 0,
+                "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],
                 "auth_responses": auth_responses[:5],
@@ -185,7 +197,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "outcome": "EXECUTION_BLOCKED",
                 "stage": stage,
                 "failure": type(error).__name__,
-                "submission_count": 1 if submission_used else 0,
+                "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "blocked_requests": blocked_requests[:20],
                 "auth_responses": auth_responses[:5],
             }
