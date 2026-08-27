@@ -367,7 +367,10 @@ async def execute_approved_login(
                 response_contains_ready = None
                 response_candidates = None
                 if capture_latest_response:
-                    response_locator = page.locator("[data-message-role='assistant'], [data-role='assistant']")
+                    response_locator = page.locator(
+                        "[data-message-role='assistant'], [data-role='assistant'], "
+                        ".chat-message.assistant .chat-bubble.markdown-body"
+                    )
                     if await response_locator.count() == 0:
                         raw_candidates = await page.locator(
                             "[class*='chat'], [class*='message'], [class*='response'], [class*='bubble'], [class*='thread'], [class*='fred'], [role='log']"
