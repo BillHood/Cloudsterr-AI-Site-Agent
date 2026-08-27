@@ -206,6 +206,14 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             if request.method in {"GET", "HEAD"} and permitted:
                 await route.continue_()
                 return
+            approved_firestore_listen_get = (
+                request.method == "GET"
+                and request.resource_type in {"fetch", "xhr"}
+                and login.permits_firestore_listen(request.url)
+            )
+            if approved_firestore_listen_get:
+                await route.continue_()
+                return
             approved_document_post = request.resource_type == "document" and permitted and not document_submission_used
             auth_endpoint = login.approved_auth_endpoint(request.url) if request.resource_type in {"fetch", "xhr"} else None
             approved_external_auth_post = auth_endpoint is not None and auth_endpoint not in used_auth_endpoints
