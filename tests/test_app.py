@@ -36,7 +36,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.4"}
+    assert response.json() == {"status": "ok", "version": "0.1.5"}
 
 
 def test_account_session_protects_dashboard_apis() -> None:
@@ -58,7 +58,7 @@ def test_plan_endpoint_defaults_to_free_and_supports_trusted_starter_configurati
     assert free.json()["key"] == "free"
     assert free.json()["browser_run_limit"] == 1_000
     assert "every_minute" not in free.json()["allowed_frequencies"]
-    assert free.json()["api_checks_available"] is False
+    assert free.json()["api_checks_available"] is True
 
     monkeypatch.setenv("CLOUDSTERR_PLAN", "starter")
     starter = client.get("/api/account/plan")
@@ -343,8 +343,31 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.1.4</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.1.5</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
+
+
+def test_sahara_api_preset_runs_only_approved_gets_without_body_storage(monkeypatch) -> None:
+    site_id = client.post("/api/sites", json=registration_payload(allowed_path="/", excluded_paths=["/admin"])).json()["id"]
+    rejected = client.post(f"/api/sites/{site_id}/api-checks/sahara-preset", json={"approval_confirmed": False})
+    approved = client.post(f"/api/sites/{site_id}/api-checks/sahara-preset", json={"approval_confirmed": True})
+    assert rejected.status_code == 422
+    assert approved.status_code == 201
+    assert {(item["method"], item["path"]) for item in approved.json()["checks"]} == {("GET", "/"), ("GET", "/dashboard/fred")}
+
+    async def fake_api_check(_base_url, definition):
+        return {"status": "PASS", "http_status": 200, "latency_ms": 42, "max_latency_ms": definition["max_latency_ms"], "content_type": "text/html", "redirected": False, "response_body_stored": False}
+
+    monkeypatch.setattr("app.main.execute_api_check", fake_api_check)
+    assert client.post(f"/api/sites/{site_id}/api-checks/run", json={"execution_confirmed": False}).status_code == 422
+    run = client.post(f"/api/sites/{site_id}/api-checks/run", json={"execution_confirmed": True})
+    assert run.status_code == 200
+    assert run.json()["status"] == "PASS"
+    assert len(run.json()["results"]) == 2
+    assert all(result["response_body_stored"] is False for result in run.json()["results"])
+    history = client.get(f"/api/sites/{site_id}/api-checks").json()
+    assert len(history["runs"]) == 2
+    assert client.get("/api/account/plan").json()["api_runs_used"] == 2
 
 
 @pytest.mark.parametrize(

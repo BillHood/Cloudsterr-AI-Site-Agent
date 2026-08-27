@@ -5,12 +5,15 @@ import json
 import secrets
 import sqlite3
 import re
+from time import perf_counter
 from contextlib import asynccontextmanager, closing, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
+from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
@@ -209,6 +212,10 @@ class AccountCredentials(BaseModel):
         return normalized
 
 
+class ApiPresetApproval(BaseModel):
+    approval_confirmed: bool
+
+
 FIXED_CHAT_PROBE = {
     "input_selector": "#fred-chat-input",
     "submit_selector": "form:has(#fred-chat-input) button[type='submit']",
@@ -273,11 +280,13 @@ def plan_snapshot(connection: sqlite3.Connection) -> dict:
     key = current_plan_key()
     plan = PLAN_CATALOG[key]
     used = browser_usage(connection)
+    month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    api_used = connection.execute("SELECT COUNT(*) FROM api_check_runs WHERE started_at >= ?", (month_start,)).fetchone()[0]
     return {
         "key": key, **plan, "browser_runs_used": used,
         "browser_runs_remaining": max(0, plan["browser_run_limit"] - used),
-        "api_runs_used": 0, "api_runs_remaining": plan["api_run_limit"],
-        "api_checks_available": False,
+        "api_runs_used": api_used, "api_runs_remaining": max(0, plan["api_run_limit"] - api_used),
+        "api_checks_available": True,
     }
 
 
@@ -285,6 +294,12 @@ def require_browser_capacity(connection: sqlite3.Connection) -> None:
     plan = plan_snapshot(connection)
     if plan["browser_runs_remaining"] <= 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan browser-run limit has been reached for this month.")
+
+
+def require_api_capacity(connection: sqlite3.Connection, requested_runs: int) -> None:
+    plan = plan_snapshot(connection)
+    if requested_runs < 1 or requested_runs > plan["api_runs_remaining"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan does not have enough API runs remaining this month.")
 
 
 SESSION_COOKIE = "cloudsterr_session"
@@ -625,6 +640,36 @@ def connect_database() -> sqlite3.Connection:
         """
     )
     connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_check_definitions (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL,
+            expected_statuses TEXT NOT NULL,
+            max_latency_ms INTEGER NOT NULL,
+            approved_at TEXT NOT NULL,
+            UNIQUE(site_id, path),
+            FOREIGN KEY (site_id) REFERENCES sites(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_check_runs (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            definition_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id),
+            FOREIGN KEY (definition_id) REFERENCES api_check_definitions(id)
+        )
+        """
+    )
+    connection.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS one_running_fred_monitor_per_site ON fred_monitor_runs(site_id) WHERE status = 'RUNNING'"
     )
     existing_journeys = connection.execute("SELECT * FROM login_journeys").fetchall()
@@ -800,7 +845,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.1.4",
+    version="0.1.5",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -2005,4 +2050,112 @@ async def list_fred_monitor_runs(site_id: str) -> dict:
             }
             for row in rows
         ]
+    }
+
+
+def api_path_allowed(site: sqlite3.Row, path: str) -> bool:
+    if not path.startswith("/") or path.startswith("//") or "?" in path or "#" in path:
+        return False
+    allowed = site["allowed_path"].rstrip("/") or "/"
+    inside_allowed = allowed == "/" or path == allowed or path.startswith(f"{allowed}/")
+    excluded = [item.rstrip("/") or "/" for item in site["excluded_paths"].split("\n") if item]
+    outside_exclusions = not any(path == item or path.startswith(f"{item}/") for item in excluded)
+    return inside_allowed and outside_exclusions
+
+
+async def execute_api_check(base_url: str, definition: sqlite3.Row) -> dict:
+    base = urlsplit(base_url)
+    target = urlunsplit((base.scheme, base.netloc, definition["path"], "", ""))
+    started = perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+            response = await client.get(target, headers={"Accept": "application/json, text/html;q=0.9", "User-Agent": "Cloudsterr-API-Monitor/0.1"})
+        latency_ms = round((perf_counter() - started) * 1000)
+        expected = json.loads(definition["expected_statuses"])
+        status_value = "PASS" if response.status_code in expected and latency_ms <= definition["max_latency_ms"] else "FAIL"
+        return {
+            "status": status_value,
+            "http_status": response.status_code,
+            "latency_ms": latency_ms,
+            "max_latency_ms": definition["max_latency_ms"],
+            "content_type": response.headers.get("content-type", "").split(";", 1)[0][:100],
+            "redirected": response.is_redirect,
+            "response_body_stored": False,
+        }
+    except httpx.HTTPError as error:
+        return {
+            "status": "FAIL", "failure": type(error).__name__,
+            "latency_ms": round((perf_counter() - started) * 1000), "response_body_stored": False,
+        }
+
+
+@app.post("/api/sites/{site_id}/api-checks/sahara-preset", tags=["api-checks"], status_code=status.HTTP_201_CREATED)
+async def create_sahara_api_checks(site_id: str, approval: ApiPresetApproval) -> dict:
+    if not approval.approval_confirmed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Explicit approval of the read-only API paths is required.")
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT login_path FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        candidates = [("Public homepage", "/"), ("Fred dashboard route", "/dashboard/fred")]
+        if profile is not None:
+            candidates.insert(1, ("Login route", profile["login_path"]))
+        approved = [(name, path) for name, path in candidates if api_path_allowed(site, path)]
+        if not approved:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="None of the preset paths are inside the site's approved boundary.")
+        now = datetime.now(UTC).isoformat()
+        for name, path in approved:
+            connection.execute(
+                """
+                INSERT INTO api_check_definitions (id, site_id, name, path, expected_statuses, max_latency_ms, approved_at)
+                VALUES (?, ?, ?, ?, '[200]', 3000, ?)
+                ON CONFLICT(site_id, path) DO UPDATE SET name = excluded.name, expected_statuses = excluded.expected_statuses,
+                    max_latency_ms = excluded.max_latency_ms, approved_at = excluded.approved_at
+                """,
+                (str(uuid4()), site_id, name, path, now),
+            )
+        connection.commit()
+    return {"created": len(approved), "checks": [{"name": name, "path": path, "method": "GET"} for name, path in approved]}
+
+
+@app.post("/api/sites/{site_id}/api-checks/run", tags=["api-checks"])
+async def run_sahara_api_checks(site_id: str, request: LoginExecutionRequest) -> dict:
+    if not request.execution_confirmed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Explicit confirmation is required before making the approved API GET requests.")
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        definitions = connection.execute("SELECT * FROM api_check_definitions WHERE site_id = ? ORDER BY path", (site_id,)).fetchall()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        if not definitions:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approve the Sahara API preset before running it.")
+        require_api_capacity(connection, len(definitions))
+    results = []
+    for definition in definitions:
+        started_at = datetime.now(UTC).isoformat()
+        evidence = await execute_api_check(site["base_url"], definition)
+        completed_at = datetime.now(UTC).isoformat()
+        run_id = str(uuid4())
+        with closing(connect_database()) as connection:
+            connection.execute(
+                "INSERT INTO api_check_runs (id, site_id, definition_id, started_at, completed_at, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (run_id, site_id, definition["id"], started_at, completed_at, evidence["status"], json.dumps(evidence)),
+            )
+            connection.commit()
+        results.append({"id": run_id, "name": definition["name"], "path": definition["path"], **evidence})
+    return {"status": "PASS" if all(item["status"] == "PASS" for item in results) else "FAIL", "results": results}
+
+
+@app.get("/api/sites/{site_id}/api-checks", tags=["api-checks"])
+async def list_sahara_api_checks(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        definitions = connection.execute("SELECT * FROM api_check_definitions WHERE site_id = ? ORDER BY path", (site_id,)).fetchall()
+        runs = connection.execute(
+            "SELECT api_check_runs.*, api_check_definitions.name, api_check_definitions.path FROM api_check_runs JOIN api_check_definitions ON api_check_definitions.id = api_check_runs.definition_id WHERE api_check_runs.site_id = ? ORDER BY api_check_runs.started_at DESC LIMIT 15",
+            (site_id,),
+        ).fetchall()
+    return {
+        "definitions": [{"id": row["id"], "name": row["name"], "path": row["path"], "method": "GET", "expected_statuses": json.loads(row["expected_statuses"]), "max_latency_ms": row["max_latency_ms"]} for row in definitions],
+        "runs": [{"id": row["id"], "name": row["name"], "path": row["path"], "started_at": row["started_at"], "status": row["status"], "evidence": json.loads(row["evidence_json"])} for row in runs],
     }

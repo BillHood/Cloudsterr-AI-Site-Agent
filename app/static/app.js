@@ -37,6 +37,10 @@ const fredOnlineMessage = document.querySelector("#fred-online-message");
 const fredMonitorForm = document.querySelector("#fred-monitor-form");
 const fredMonitorMessage = document.querySelector("#fred-monitor-message");
 const fredMonitorHistory = document.querySelector("#fred-monitor-history");
+const apiPresetButton = document.querySelector("#api-preset-button");
+const apiRunButton = document.querySelector("#api-run-button");
+const apiCheckMessage = document.querySelector("#api-check-message");
+const apiCheckHistory = document.querySelector("#api-check-history");
 const fredMonitorMonthlyDefaults = {every_minute: 43200, every_5_minutes: 8640, every_30_minutes: 1440, hourly: 720, daily: 30, weekly: 4};
 const planBadge = document.querySelector("#plan-badge");
 const planTitle = document.querySelector("#plan-title");
@@ -564,6 +568,9 @@ async function openAuthentication(button) {
   await loadInteractionVersions(button.dataset.siteId);
   await loadChatInventories(button.dataset.siteId);
   await loadFredMonitor(button.dataset.siteId);
+  apiPresetButton.dataset.siteId = button.dataset.siteId;
+  apiRunButton.dataset.siteId = button.dataset.siteId;
+  await loadApiChecks(button.dataset.siteId);
   document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
   authenticationPanel.hidden = false;
   authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
@@ -821,6 +828,69 @@ async function saveFredMonitor(event) {
   fredMonitorMessage.textContent = data.enabled ? `Enabled. Next run: ${new Date(data.next_run_at).toLocaleString()}` : "Disabled. No future Fred messages will be sent.";
 }
 
+function renderApiChecks(data) {
+  apiCheckHistory.replaceChildren();
+  apiRunButton.disabled = data.definitions.length === 0;
+  apiCheckMessage.textContent = data.definitions.length
+    ? `${data.definitions.length} approved GET check${data.definitions.length === 1 ? "" : "s"}. No response bodies will be stored.`
+    : "Approve the exact read-only paths first.";
+  for (const run of data.runs.slice(0, 10)) {
+    const card = document.createElement("article");
+    card.className = `run-card result-${run.status.toLowerCase()}`;
+    const heading = document.createElement("h4");
+    heading.textContent = `${run.status} · ${run.name}`;
+    card.append(heading);
+    appendEvidenceDetail(card, "Time", new Date(run.started_at).toLocaleString());
+    appendEvidenceDetail(card, "Path", run.path);
+    appendEvidenceDetail(card, "HTTP status", run.evidence.http_status ?? run.evidence.failure ?? "Unavailable");
+    appendEvidenceDetail(card, "Latency", `${run.evidence.latency_ms} ms`);
+    apiCheckHistory.append(card);
+  }
+}
+
+async function loadApiChecks(siteId) {
+  const response = await fetch(`/api/sites/${siteId}/api-checks`, {headers: {Accept: "application/json"}});
+  const data = await response.json();
+  if (!response.ok) throw new Error(formatApiError(data, "API checks could not be loaded."));
+  renderApiChecks(data);
+}
+
+async function approveApiPreset() {
+  if (!window.confirm("Approve same-origin GET checks for the in-boundary homepage, configured login route, and /dashboard/fred? No response body will be stored.")) return;
+  const response = await fetch(`/api/sites/${apiPresetButton.dataset.siteId}/api-checks/sahara-preset`, {
+    method: "POST", headers: {"Content-Type": "application/json", Accept: "application/json"},
+    body: JSON.stringify({approval_confirmed: true}),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    apiCheckMessage.classList.add("error");
+    apiCheckMessage.textContent = formatApiError(data, "The API preset could not be approved.");
+    return;
+  }
+  apiCheckMessage.classList.remove("error");
+  await loadApiChecks(apiPresetButton.dataset.siteId);
+}
+
+async function runApiChecks() {
+  if (!window.confirm("Run each approved read-only API GET check once?")) return;
+  apiRunButton.disabled = true;
+  apiCheckMessage.textContent = "Running approved API checks…";
+  const response = await fetch(`/api/sites/${apiRunButton.dataset.siteId}/api-checks/run`, {
+    method: "POST", headers: {"Content-Type": "application/json", Accept: "application/json"},
+    body: JSON.stringify({execution_confirmed: true}),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    apiCheckMessage.classList.add("error");
+    apiCheckMessage.textContent = formatApiError(data, "The API checks could not run.");
+    apiRunButton.disabled = false;
+    return;
+  }
+  apiCheckMessage.classList.toggle("error", data.status !== "PASS");
+  await loadApiChecks(apiRunButton.dataset.siteId);
+  await loadPlan();
+}
+
 fredMonitorForm.elements.frequency.addEventListener("change", (event) => {
   const projected = fredMonitorMonthlyDefaults[event.target.value];
   fredMonitorForm.elements.monthly_limit.value = projected;
@@ -948,6 +1018,8 @@ chatProbeRetryButton.addEventListener("click", runFixedChatProbeRetry);
 chatProbeFinalButton.addEventListener("click", runFixedChatProbeFinal);
 fredOnlineButton.addEventListener("click", runFredOnlineCheck);
 fredMonitorForm.addEventListener("submit", saveFredMonitor);
+apiPresetButton.addEventListener("click", approveApiPreset);
+apiRunButton.addEventListener("click", runApiChecks);
 accountForm.addEventListener("submit", submitAccount);
 logoutButton.addEventListener("click", logoutAccount);
 initializeAccount();

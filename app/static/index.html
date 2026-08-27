@@ -34,14 +34,14 @@
 
     <main id="main-content" hidden>
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.1.4</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.1.5</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.1.4 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.1.5 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -181,6 +181,13 @@
           <p id="fred-monitor-message" class="status-message" aria-live="polite"></p>
         </form>
         <div id="fred-monitor-history" aria-live="polite"></div>
+        <div class="journey-divider"></div>
+        <h3>Sahara API checks</h3>
+        <p class="section-copy">Read-only same-origin GET checks for the approved homepage, configured login route, and <code>/dashboard/fred</code>. Expected status is 200 within three seconds. Response bodies, cookies, tokens, headers, and query strings are not stored.</p>
+        <button id="api-preset-button" class="secondary-button" type="button">Approve Sahara API preset</button>
+        <button id="api-run-button" class="run-button" type="button" disabled>Run API checks</button>
+        <p id="api-check-message" class="status-message" aria-live="polite">Approve the exact read-only paths first.</p>
+        <div id="api-check-history" aria-live="polite"></div>
       </section>
 
       <section id="schedule-panel" class="schedule-panel" aria-labelledby="schedule-title" hidden>
