@@ -33,7 +33,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.1"}
+    assert response.json() == {"status": "ok", "version": "0.1.2"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -311,7 +311,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.1.1</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.1.2</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -709,7 +709,7 @@ def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
     assert duplicate_online.status_code == 409
 
     schedule_payload = {
-        "frequency": "weekly", "enabled": True, "monthly_limit": 1,
+        "frequency": "every_minute", "enabled": True, "monthly_limit": 43_200,
         "exact_prompt_confirmed": True, "real_message_confirmed": True, "bounded_network_confirmed": True,
     }
     rejected_schedule = client.put(
@@ -719,14 +719,21 @@ def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
     enabled_schedule = client.put(f"/api/sites/{site_id}/fred-monitor-schedule", json=schedule_payload)
     assert rejected_schedule.status_code == 422
     assert enabled_schedule.status_code == 200
+    assert enabled_schedule.json()["frequency"] == "every_minute"
+    assert enabled_schedule.json()["monthly_limit"] == 43_200
     assert enabled_schedule.json()["next_run_at"] is not None
+    capped_schedule = client.put(
+        f"/api/sites/{site_id}/fred-monitor-schedule",
+        json={**schedule_payload, "monthly_limit": 1},
+    )
+    assert capped_schedule.status_code == 200
     scheduled_run = asyncio.run(run_scheduled_fred_monitor(site_id))
     assert scheduled_run["status"] == "PASS"
     with pytest.raises(HTTPException):
         asyncio.run(run_scheduled_fred_monitor(site_id))
     disabled_schedule = client.put(
         f"/api/sites/{site_id}/fred-monitor-schedule",
-        json={"frequency": "weekly", "enabled": False, "monthly_limit": 1},
+        json={"frequency": "every_minute", "enabled": False, "monthly_limit": 43_200},
     )
     assert disabled_schedule.status_code == 200
     assert disabled_schedule.json()["next_run_at"] is None

@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.1.1</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.1.2</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.1.1 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.1.2 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -139,11 +139,11 @@
         <p id="fred-online-message" class="status-message" aria-live="polite">This check submits one real message and may consume Sahara usage.</p>
         <div class="journey-divider"></div>
         <h3>Automated Fred monitor</h3>
-        <p class="section-copy">Disabled by default. Each scheduled run sends the same real prompt, may create a Sahara conversation record, and consumes quota. Weekly with four runs per month is the recommended starting limit.</p>
+        <p class="section-copy">Disabled by default. Each scheduled run sends the same real prompt, may create a Sahara conversation record, and consumes quota. The monthly limit resets to the full 30-day frequency allowance when you change frequency; you may lower it before saving.</p>
         <form id="fred-monitor-form">
           <div class="form-grid">
-            <label>Frequency<select name="frequency"><option value="weekly">Weekly</option><option value="daily">Daily</option></select></label>
-            <label>Maximum runs per month<input name="monthly_limit" type="number" min="1" max="31" value="4" required></label>
+            <label>Frequency<select name="frequency"><option value="every_minute">Every minute</option><option value="every_5_minutes">Every 5 minutes</option><option value="every_30_minutes">Every 30 minutes</option><option value="hourly">Every 60 minutes</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
+            <label>Maximum runs per month<input name="monthly_limit" type="number" min="1" max="43200" value="4" required></label>
           </div>
           <label class="confirmation"><input name="enabled" type="checkbox"><span>Enable recurring Fred brain checks.</span></label>
           <label class="confirmation"><input name="exact_prompt_confirmed" type="checkbox"><span>I approve the exact recurring prompt: <code>Hi Fred, Cloudsterr AI Site Agent - checking in?</code></span></label>

@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.1.1`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.1.2`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.1.1 adds an opt-in automated Fred monitor, disabled by default. Enabling requires three explicit confirmations covering the immutable prompt, recurring real-message storage/quota impact, and bounded Firestore/Gemini network permissions. Schedules are daily or weekly, enforce a configurable monthly cap of 1–31 runs, prevent concurrent runs, expose recent sanitized history, and can be disabled immediately. Weekly with a four-run monthly cap is the recommended starting configuration.
+Version 0.1.2 adds Fred monitor intervals of 1, 5, 30, and 60 minutes alongside daily and weekly schedules. Changing the frequency resets the editable monthly cap to its full 30-day allowance: 43,200, 8,640, 1,440, 720, 30, or 4 runs respectively.
 
 ## Safety boundary
 

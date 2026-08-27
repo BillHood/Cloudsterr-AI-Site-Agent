@@ -37,6 +37,7 @@ const fredOnlineMessage = document.querySelector("#fred-online-message");
 const fredMonitorForm = document.querySelector("#fred-monitor-form");
 const fredMonitorMessage = document.querySelector("#fred-monitor-message");
 const fredMonitorHistory = document.querySelector("#fred-monitor-history");
+const fredMonitorMonthlyDefaults = {every_minute: 43200, every_5_minutes: 8640, every_30_minutes: 1440, hourly: 720, daily: 30, weekly: 4};
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -726,6 +727,10 @@ async function saveFredMonitor(event) {
   fredMonitorMessage.classList.remove("error");
   fredMonitorMessage.textContent = data.enabled ? `Enabled. Next run: ${new Date(data.next_run_at).toLocaleString()}` : "Disabled. No future Fred messages will be sent.";
 }
+
+fredMonitorForm.elements.frequency.addEventListener("change", (event) => {
+  fredMonitorForm.elements.monthly_limit.value = fredMonitorMonthlyDefaults[event.target.value];
+});
 
 async function saveAuthentication(event) {
   event.preventDefault();

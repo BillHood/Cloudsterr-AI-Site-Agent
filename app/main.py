@@ -185,9 +185,9 @@ class ChatProbeApproval(BaseModel):
 
 
 class FredMonitorSchedule(BaseModel):
-    frequency: Literal["daily", "weekly"]
+    frequency: Literal["every_minute", "every_5_minutes", "every_30_minutes", "hourly", "daily", "weekly"]
     enabled: bool
-    monthly_limit: int = Field(ge=1, le=31)
+    monthly_limit: int = Field(ge=1, le=43_200)
     exact_prompt_confirmed: bool = False
     real_message_confirmed: bool = False
     bounded_network_confirmed: bool = False
@@ -567,7 +567,14 @@ def approved_login_from_records(site: sqlite3.Row, profile: sqlite3.Row, interac
 
 def next_scheduled_time(frequency: str, from_time: datetime | None = None) -> datetime:
     current = from_time or datetime.now(UTC)
-    delta = {"hourly": timedelta(hours=1), "daily": timedelta(days=1), "weekly": timedelta(weeks=1)}[frequency]
+    delta = {
+        "every_minute": timedelta(minutes=1),
+        "every_5_minutes": timedelta(minutes=5),
+        "every_30_minutes": timedelta(minutes=30),
+        "hourly": timedelta(hours=1),
+        "daily": timedelta(days=1),
+        "weekly": timedelta(weeks=1),
+    }[frequency]
     return current + delta
 
 
@@ -666,7 +673,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.1.1",
+    version="0.1.2",
     lifespan=lifespan,
 )
 app.add_middleware(
