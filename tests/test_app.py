@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.11"}
+    assert response.json() == {"status": "ok", "version": "0.0.12"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -281,7 +281,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.11</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.12</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -293,6 +293,8 @@ def test_dashboard_is_served() -> None:
         ({"path_matches": False, "text_matches": False, "submission_used": False, "blocked_requests": [], "visible_errors": ["Invalid email or password"]}, ("FAIL", "BAD_CREDENTIALS")),
         ({"path_matches": False, "text_matches": False, "submission_used": False, "blocked_requests": [], "visible_errors": ["Email is required"]}, ("FAIL", "VALIDATION_FAILED")),
         ({"path_matches": False, "text_matches": False, "submission_used": True, "blocked_requests": [], "visible_errors": []}, ("FAIL", "SUCCESS_EVIDENCE_MISMATCH")),
+        ({"path_matches": False, "text_matches": False, "submission_used": True, "blocked_requests": [], "visible_errors": [], "auth_responses": [{"status": 400}]}, ("FAIL", "AUTH_REJECTED")),
+        ({"path_matches": False, "text_matches": False, "submission_used": True, "blocked_requests": [{"method": "POST"}], "visible_errors": [], "auth_responses": [{"status": 200}]}, ("FAIL", "SUCCESS_EVIDENCE_MISMATCH")),
     ],
 )
 def test_login_result_classification(arguments: dict, expected: tuple[str, str]) -> None:

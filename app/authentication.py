@@ -27,9 +27,15 @@ def classify_login_result(
     submission_used: bool,
     blocked_requests: list[dict],
     visible_errors: list[str],
+    auth_responses: list[dict] | None = None,
 ) -> tuple[str, str]:
+    auth_responses = auth_responses or []
     if path_matches and text_matches:
         return "PASS", "SUCCESS"
+    if any(item["status"] >= 400 for item in auth_responses):
+        return "FAIL", "AUTH_REJECTED"
+    if any(200 <= item["status"] < 400 for item in auth_responses):
+        return "FAIL", "SUCCESS_EVIDENCE_MISMATCH"
     if any(item["method"] not in {"GET", "HEAD"} for item in blocked_requests):
         return "FAIL", "EXTERNAL_AUTH_BLOCKED"
     joined_errors = " ".join(visible_errors)
@@ -90,6 +96,20 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
         submission_used = False
         stage = "BROWSER_STARTED"
         blocked_requests: list[dict] = []
+        auth_responses: list[dict] = []
+
+        def record_auth_response(response) -> None:
+            if response.request.method == "POST" and login.permits_auth_submission(response.url):
+                parsed = urlparse(response.url)
+                auth_responses.append(
+                    {
+                        "status": response.status,
+                        "hostname": parsed.hostname or "unknown",
+                        "path": parsed.path or "/",
+                    }
+                )
+
+        page.on("response", record_auth_response)
 
         async def enforce(route: Route, request: Request) -> None:
             nonlocal submission_used
@@ -140,6 +160,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 submission_used=submission_used,
                 blocked_requests=blocked_requests,
                 visible_errors=visible_errors,
+                auth_responses=auth_responses,
             )
             return {
                 "status": status,
@@ -151,6 +172,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "submission_count": 1 if submission_used else 0,
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],
+                "auth_responses": auth_responses[:5],
             }
         except Exception as error:
             return {
@@ -160,6 +182,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "failure": type(error).__name__,
                 "submission_count": 1 if submission_used else 0,
                 "blocked_requests": blocked_requests[:20],
+                "auth_responses": auth_responses[:5],
             }
         finally:
             await context.close()
