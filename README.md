@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.36`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.37`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.36 records a fresh, explicitly authorized, single-use final attempt using the corrected Playwright response wait. The exact probe message and bounded Firestore Write and same-origin Gemini permissions are unchanged. Both prior attempts remain immutable and consumed. The final attempt reserves before browser execution, cannot run twice, and must correlate its assistant response before PASS.
+Version 0.0.37 recognizes the correlated Fred response bubble discovered by the completed final attempt. After locating the exact probe and first subsequent `.chat-message.assistant`, it reads that message's `.chat-bubble` whether or not Markdown styling has been applied. The boundary remains inside the correlated assistant message; no new submission authorization is created.
 
 ## Safety boundary
 

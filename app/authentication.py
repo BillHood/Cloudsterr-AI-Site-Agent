@@ -409,7 +409,7 @@ async def execute_approved_login(
                             const probeIndex = messages.findIndex(message => message.innerText.includes(probeMessage));
                             if (probeIndex < 0) return null;
                             const response = messages.slice(probeIndex + 1).find(message => message.classList.contains('assistant'));
-                            const bubble = response?.querySelector('.chat-bubble.markdown-body');
+                            const bubble = response?.querySelector('.chat-bubble');
                             return bubble ? bubble.innerText.slice(0, 300) : null;
                         }""",
                         "Cloudsterr functional check. Please reply with READY.",
