@@ -427,7 +427,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.18",
+    version="0.0.19",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -1006,9 +1006,23 @@ async def list_interaction_definitions(site_id: str) -> dict:
     with closing(connect_database()) as connection:
         site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
         rows = connection.execute(
-            "SELECT id, interaction_type, version, approved_at, supersedes_id FROM interaction_definitions WHERE site_id = ? ORDER BY interaction_type, version DESC",
+            """
+            SELECT interaction_definitions.id, interaction_definitions.interaction_type,
+                   interaction_definitions.version, interaction_definitions.approved_at,
+                   interaction_definitions.supersedes_id, COUNT(authentication_runs.id) AS linked_run_count
+            FROM interaction_definitions
+            LEFT JOIN authentication_runs
+              ON authentication_runs.interaction_definition_id = interaction_definitions.id
+            WHERE interaction_definitions.site_id = ?
+            GROUP BY interaction_definitions.id
+            ORDER BY interaction_definitions.interaction_type, interaction_definitions.version DESC
+            """,
             (site_id,),
         ).fetchall()
+        legacy_run_count = connection.execute(
+            "SELECT COUNT(*) FROM authentication_runs WHERE site_id = ? AND interaction_definition_id IS NULL",
+            (site_id,),
+        ).fetchone()[0]
     if site is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
     return {
@@ -1019,9 +1033,11 @@ async def list_interaction_definitions(site_id: str) -> dict:
                 "version": row["version"],
                 "approved_at": row["approved_at"],
                 "supersedes_id": row["supersedes_id"],
+                "linked_run_count": row["linked_run_count"],
             }
             for row in rows
-        ]
+        ],
+        "legacy_run_count": legacy_run_count,
     }
 
 

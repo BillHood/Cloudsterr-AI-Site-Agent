@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.18"}
+    assert response.json() == {"status": "ok", "version": "0.0.19"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -257,6 +257,8 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     assert login_test.json()["interaction_version"] == 1
     assert "test-user-value" not in login_test.text
     assert "test-password-value" not in login_test.text
+    interaction_history = client.get(f"/api/sites/{site_id}/interactions").json()
+    assert interaction_history["interactions"][0]["linked_run_count"] == 1
 
 
 def test_authentication_profile_rejects_secret_like_values_and_missing_confirmation() -> None:
@@ -295,7 +297,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.18</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.19</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -416,9 +418,14 @@ def test_login_interactions_are_immutable_and_versioned() -> None:
     assert first.json()["interaction_version"] == 1
     assert identical.json()["interaction_version"] == 1
     assert changed.json()["interaction_version"] == 2
-    versions = client.get(f"/api/sites/{site_id}/interactions").json()["interactions"]
+    response_data = client.get(f"/api/sites/{site_id}/interactions").json()
+    versions = response_data["interactions"]
     assert [item["version"] for item in versions] == [2, 1]
     assert versions[0]["supersedes_id"] == versions[1]["id"]
+    assert versions[0]["linked_run_count"] == 0
+    assert response_data["legacy_run_count"] == 0
+    assert "definition" not in str(response_data)
+    assert "#email" not in str(response_data)
 
 
 def test_login_journey_rejects_broad_or_query_bearing_external_auth_url() -> None:

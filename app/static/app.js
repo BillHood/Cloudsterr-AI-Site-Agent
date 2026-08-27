@@ -20,6 +20,7 @@ const loginJourneyMessage = document.querySelector("#login-journey-message");
 const loginTestButton = document.querySelector("#login-test-button");
 const loginTestMessage = document.querySelector("#login-test-message");
 const loginTestEvidence = document.querySelector("#login-test-evidence");
+const interactionVersions = document.querySelector("#interaction-versions");
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -60,6 +61,35 @@ async function loadLoginEvidence(siteId) {
   const data = await response.json();
   if (!response.ok) throw new Error(formatApiError(data, "Login evidence could not be loaded."));
   renderLoginEvidence(data.runs);
+}
+
+function renderInteractionVersions(data) {
+  interactionVersions.replaceChildren();
+  if (data.interactions.length === 0) {
+    interactionVersions.textContent = "No approved interaction versions.";
+    return;
+  }
+  for (const [index, interaction] of data.interactions.entries()) {
+    const card = document.createElement("article");
+    card.className = "run-card";
+    const heading = document.createElement("h4");
+    heading.textContent = `${interaction.type === "login" ? "Login" : interaction.type} v${interaction.version}${index === 0 ? " · Current" : ""}`;
+    card.append(heading);
+    appendEvidenceDetail(card, "Approved", new Date(interaction.approved_at).toLocaleString());
+    appendEvidenceDetail(card, "Version-linked runs", String(interaction.linked_run_count));
+    appendEvidenceDetail(card, "Supersedes", interaction.supersedes_id ? "Earlier approved version" : "Initial version");
+    interactionVersions.append(card);
+  }
+  if (data.legacy_run_count > 0) {
+    appendEvidenceDetail(interactionVersions, "Legacy runs preserved", String(data.legacy_run_count));
+  }
+}
+
+async function loadInteractionVersions(siteId) {
+  const response = await fetch(`/api/sites/${siteId}/interactions`, {headers: {Accept: "application/json"}});
+  const data = await response.json();
+  if (!response.ok) throw new Error(formatApiError(data, "Interaction versions could not be loaded."));
+  renderInteractionVersions(data);
 }
 
 function formatApiError(data, fallback) {
@@ -380,6 +410,7 @@ async function openAuthentication(button) {
   loginTestButton.disabled = !(data.configured && journey.configured);
   loginTestMessage.textContent = loginTestButton.disabled ? "Configure references and approve a login definition first." : "Ready for a manually confirmed login test. Credentials will be read from the server environment.";
   await loadLoginEvidence(button.dataset.siteId);
+  await loadInteractionVersions(button.dataset.siteId);
   document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
   authenticationPanel.hidden = false;
   authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
@@ -407,6 +438,7 @@ async function saveLoginJourney(event) {
   }
   loginJourneyMessage.classList.remove("error");
   loginJourneyMessage.textContent = `Login interaction v${data.interaction_version} approved. Execution remains disabled.`;
+  await loadInteractionVersions(loginJourneyForm.dataset.siteId);
 }
 
 async function runLoginTest() {
@@ -425,6 +457,7 @@ async function runLoginTest() {
     loginTestMessage.classList.toggle("error", data.status !== "PASS");
     loginTestMessage.textContent = `Login test ${data.status}. No credential values were stored or returned.`;
     await loadLoginEvidence(loginTestButton.dataset.siteId);
+    await loadInteractionVersions(loginTestButton.dataset.siteId);
   } catch (error) {
     loginTestMessage.classList.add("error");
     loginTestMessage.textContent = error.message;

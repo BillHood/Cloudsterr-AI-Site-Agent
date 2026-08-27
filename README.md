@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.18`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.19`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.18 adds immutable, versioned interaction definitions. Existing approved login journeys migrate to version 1, changed definitions create a new version, identical re-approval does not, and every new login run references the exact interaction version executed. Network permissions and login behavior are unchanged.
+Version 0.0.19 adds a metadata-only Interaction Versions view. It shows interaction type, version, approval time, supersession, linked-run count, and legacy-run count without exposing definitions, selectors, endpoints, or secret references. Network permissions and login behavior are unchanged.
 
 ## Safety boundary
 
