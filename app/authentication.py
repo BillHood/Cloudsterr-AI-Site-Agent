@@ -218,6 +218,7 @@ async def execute_approved_login(
         inventory_navigation_matches = None
         probe_write_window = False
         gemini_submission_used = False
+        probe_submitted = False
 
         def record_auth_response(response) -> None:
             if response.request.method == "POST" and login.permits_auth_submission(response.url):
@@ -353,7 +354,6 @@ async def execute_approved_login(
                 stage = "INVENTORY_CONTROLS_PENDING"
                 await page.locator(editable_selector).first.wait_for(state="attached", timeout=10_000)
                 stage = "INVENTORY_CONTROLS_READY"
-                probe_submitted = False
                 probe_input_cleared = None
                 if chat_probe:
                     probe_input = page.locator(chat_probe["input_selector"]).first
@@ -372,7 +372,7 @@ async def execute_approved_login(
                                 const probeIndex = messages.findIndex(message => message.innerText.includes(probeMessage));
                                 return probeIndex >= 0 && messages.slice(probeIndex + 1).some(message => message.classList.contains('assistant'));
                             }""",
-                            "Cloudsterr functional check. Please reply with READY.",
+                            arg="Cloudsterr functional check. Please reply with READY.",
                             timeout=30_000,
                         )
                     else:
@@ -486,6 +486,7 @@ async def execute_approved_login(
                 "blocked_requests": blocked_requests[:20],
                 "auth_responses": auth_responses[:5],
                 "inventory_navigation_matches": inventory_navigation_matches,
+                "chat_message_submitted": probe_submitted,
             }
         finally:
             await context.close()

@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.34`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.35`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.34 adds one separately authorized, single-use retry after evidence showed the first attempt's Firestore Write GET backchannel and same-origin `/api/gemini` POST were blocked. Only during this retry may those exact requests proceed. The retry waits up to 30 seconds for the assistant response correlated to the immutable probe. It also removes the previously stored uncorrelated onboarding sentence and preserves an audit timestamp for that correction.
+Version 0.0.35 fixes the post-submit Playwright wait call that caused the consumed retry to report `TypeError`. No new submission authorization is created. Blocked evidence now preserves whether the submit click occurred. Response verification remains read-only and can determine whether the consumed retry persisted and received a correlated Fred response.
 
 ## Safety boundary
 

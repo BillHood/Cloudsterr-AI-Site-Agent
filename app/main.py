@@ -546,7 +546,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.34",
+    version="0.0.35",
     lifespan=lifespan,
 )
 app.add_middleware(
