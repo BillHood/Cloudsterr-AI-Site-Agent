@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.discovery import DiscoveryBoundary
+from app.authentication import classify_login_result
 from app.main import app
 
 client = TestClient(app)
@@ -30,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.9"}
+    assert response.json() == {"status": "ok", "version": "0.0.10"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -277,5 +278,19 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.9</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.10</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({"path_matches": True, "text_matches": True, "submission_used": True, "blocked_requests": [], "visible_errors": []}, ("PASS", "SUCCESS")),
+        ({"path_matches": False, "text_matches": False, "submission_used": False, "blocked_requests": [{"method": "POST"}], "visible_errors": []}, ("FAIL", "EXTERNAL_AUTH_BLOCKED")),
+        ({"path_matches": False, "text_matches": False, "submission_used": False, "blocked_requests": [], "visible_errors": ["Invalid email or password"]}, ("FAIL", "BAD_CREDENTIALS")),
+        ({"path_matches": False, "text_matches": False, "submission_used": False, "blocked_requests": [], "visible_errors": ["Email is required"]}, ("FAIL", "VALIDATION_FAILED")),
+        ({"path_matches": False, "text_matches": False, "submission_used": True, "blocked_requests": [], "visible_errors": []}, ("FAIL", "SUCCESS_EVIDENCE_MISMATCH")),
+    ],
+)
+def test_login_result_classification(arguments: dict, expected: tuple[str, str]) -> None:
+    assert classify_login_result(**arguments) == expected

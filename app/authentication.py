@@ -1,7 +1,43 @@
 from dataclasses import dataclass
+import re
 from urllib.parse import urljoin, urlparse
 
 from playwright.async_api import Request, Route, async_playwright
+
+
+def _safe_page_url(url: str, origin: str) -> str:
+    parsed = urlparse(url)
+    if f"{parsed.scheme}://{parsed.netloc}" != origin:
+        return origin
+    return f"{origin}{parsed.path or '/'}"
+
+
+def _redact(text: str, secrets: tuple[str, ...]) -> str:
+    sanitized = " ".join(text.split())[:300]
+    for secret in secrets:
+        if secret:
+            sanitized = sanitized.replace(secret, "[REDACTED]")
+    return sanitized
+
+
+def classify_login_result(
+    *,
+    path_matches: bool,
+    text_matches: bool,
+    submission_used: bool,
+    blocked_requests: list[dict],
+    visible_errors: list[str],
+) -> tuple[str, str]:
+    if path_matches and text_matches:
+        return "PASS", "SUCCESS"
+    if any(item["method"] not in {"GET", "HEAD"} for item in blocked_requests):
+        return "FAIL", "EXTERNAL_AUTH_BLOCKED"
+    joined_errors = " ".join(visible_errors)
+    if re.search(r"invalid|incorrect|unauthorized|wrong|credentials|not match", joined_errors, re.IGNORECASE):
+        return "FAIL", "BAD_CREDENTIALS"
+    if visible_errors or not submission_used:
+        return "FAIL", "VALIDATION_FAILED"
+    return "FAIL", "SUCCESS_EVIDENCE_MISMATCH"
 
 
 @dataclass(frozen=True)
@@ -39,6 +75,8 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
         context = await browser.new_context(service_workers="block")
         page = await context.new_page()
         submission_used = False
+        stage = "BROWSER_STARTED"
+        blocked_requests: list[dict] = []
 
         async def enforce(route: Route, request: Request) -> None:
             nonlocal submission_used
@@ -51,26 +89,62 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 submission_used = True
                 await route.continue_()
                 return
+            parsed = urlparse(request.url)
+            blocked = {
+                "method": request.method,
+                "hostname": parsed.hostname or "unknown",
+                "resource_type": request.resource_type,
+            }
+            if blocked not in blocked_requests:
+                blocked_requests.append(blocked)
             await route.abort("blockedbyclient")
 
         await page.route("**/*", enforce)
         try:
             await page.goto(urljoin(f"{login.base_url.rstrip('/')}/", login.login_path.lstrip("/")), wait_until="domcontentloaded", timeout=15_000)
+            stage = "PAGE_LOADED"
             await page.locator(login.username_selector).fill(username, timeout=5_000)
             await page.locator(login.password_selector).fill(password, timeout=5_000)
+            stage = "FIELDS_FILLED"
             await page.locator(login.submit_selector).click(timeout=5_000)
-            await page.wait_for_load_state("domcontentloaded", timeout=15_000)
+            stage = "SUBMIT_CLICKED"
+            await page.wait_for_timeout(2_000)
             final_url = page.url
             expected_url = urljoin(f"{login.base_url.rstrip('/')}/", login.success_path.lstrip("/"))
             path_matches = urlparse(final_url).path.rstrip("/") == urlparse(expected_url).path.rstrip("/")
             text_matches = await page.get_by_text(login.success_text, exact=False).count() > 0
-            passed = path_matches and text_matches
+            error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
+            visible_errors = [
+                _redact(item, (username, password))
+                for item in await error_locator.all_inner_texts()
+                if item.strip()
+            ][:5]
+            status, outcome = classify_login_result(
+                path_matches=path_matches,
+                text_matches=text_matches,
+                submission_used=submission_used,
+                blocked_requests=blocked_requests,
+                visible_errors=visible_errors,
+            )
             return {
-                "status": "PASS" if passed else "FAIL",
-                "final_url": final_url if login.permitted_url(final_url) else login.origin,
+                "status": status,
+                "outcome": outcome,
+                "stage": stage,
+                "final_url": _safe_page_url(final_url, login.origin),
                 "path_matches": path_matches,
                 "text_matches": text_matches,
                 "submission_count": 1 if submission_used else 0,
+                "visible_errors": visible_errors,
+                "blocked_requests": blocked_requests[:20],
+            }
+        except Exception as error:
+            return {
+                "status": "BLOCKED",
+                "outcome": "EXECUTION_BLOCKED",
+                "stage": stage,
+                "failure": type(error).__name__,
+                "submission_count": 1 if submission_used else 0,
+                "blocked_requests": blocked_requests[:20],
             }
         finally:
             await context.close()
