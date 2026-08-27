@@ -111,6 +111,7 @@ function renderChatInventory(runs) {
   appendEvidenceDetail(card, "Login prerequisite", `v${run.interaction_version}`);
   appendEvidenceDetail(card, "Chat message submitted", run.evidence.chat_message_submitted ? "yes" : "no");
   appendEvidenceDetail(card, "Page text captured", run.evidence.page_text_captured ? "yes" : "no");
+  appendEvidenceDetail(card, "Approved destination reached", run.evidence.inventory_navigation_matches === true ? "yes" : run.evidence.inventory_navigation_matches === false ? "no" : "not configured");
   const controls = run.evidence.control_inventory || [];
   appendEvidenceDetail(card, "Candidate controls", String(controls.length));
   for (const [index, control] of controls.entries()) {
@@ -436,6 +437,9 @@ async function openAuthentication(button) {
   for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text", "success_mode", "external_auth_url", "external_followup_url", "main_selector", "heading_selector", "navigation_selector"]) {
     loginJourneyForm.elements[name].value = journey[name] || "";
   }
+  for (const name of ["inventory_navigation_selector", "inventory_navigation_index", "inventory_destination_path"]) {
+    loginJourneyForm.elements[name].value = journey[name] || loginJourneyForm.elements[name].defaultValue;
+  }
   loginJourneyForm.elements.authenticated_shell_check.checked = Boolean(journey.authenticated_shell_check);
   loginJourneyForm.elements.approval_confirmed.checked = false;
   loginJourneyMessage.textContent = journey.configured ? `Login interaction v${journey.interaction_version} approved. Execution remains disabled.` : "No login definition is approved.";
@@ -463,6 +467,7 @@ async function saveLoginJourney(event) {
   payload.external_auth_url = payload.external_auth_url || null;
   payload.external_followup_url = payload.external_followup_url || null;
   payload.authenticated_shell_check = formData.get("authenticated_shell_check") === "on";
+  payload.inventory_navigation_index = Number(formData.get("inventory_navigation_index"));
   payload.approval_confirmed = formData.get("approval_confirmed") === "on";
   const response = await fetch(`/api/sites/${loginJourneyForm.dataset.siteId}/login-journey`, {
     method: "PUT",

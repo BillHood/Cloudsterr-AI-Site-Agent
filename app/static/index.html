@@ -20,14 +20,14 @@
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.0.21</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.0.22</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.0.21 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.0.22 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
@@ -93,6 +93,9 @@
             <label>Main landmark selector<input name="main_selector" placeholder="main" maxlength="300"></label>
             <label>Primary heading selector<input name="heading_selector" placeholder="h1, h2" maxlength="300"></label>
             <label>Navigation selector<input name="navigation_selector" placeholder="nav" maxlength="300"></label>
+            <label>Inventory navigation selector<input name="inventory_navigation_selector" value=".dashboard-nav-item-primary" maxlength="300" aria-describedby="inventory-selector-help"><span id="inventory-selector-help" class="field-help">Exact approved selector used only by a separately confirmed inventory.</span></label>
+            <label>Inventory navigation index<input name="inventory_navigation_index" type="number" value="2" min="0" max="20" aria-describedby="inventory-index-help"><span id="inventory-index-help" class="field-help">Zero-based: the third matching control is index 2.</span></label>
+            <label>Inventory destination path<input name="inventory_destination_path" value="/dashboard/fred" maxlength="500"></label>
           </div>
           <label>Success text (required only for path-and-text mode)<input name="success_text" placeholder="Welcome" maxlength="300"></label>
           <label class="confirmation"><input name="authenticated_shell_check" type="checkbox"><span>After login, verify only whether the approved main, heading, and navigation selectors are visible. Do not capture their text or click them.</span></label>

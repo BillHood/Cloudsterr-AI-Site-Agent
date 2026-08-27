@@ -119,9 +119,12 @@ class LoginJourney(BaseModel):
     navigation_selector: str = Field(default="", max_length=300)
     external_auth_url: HttpUrl | None = None
     external_followup_url: HttpUrl | None = None
+    inventory_navigation_selector: str = Field(default="", max_length=300)
+    inventory_navigation_index: int = Field(default=0, ge=0, le=20)
+    inventory_destination_path: str = Field(default="", max_length=500)
     approval_confirmed: bool
 
-    @field_validator("username_selector", "password_selector", "submit_selector", "success_text", "main_selector", "heading_selector", "navigation_selector")
+    @field_validator("username_selector", "password_selector", "submit_selector", "success_text", "main_selector", "heading_selector", "navigation_selector", "inventory_navigation_selector")
     @classmethod
     def trim_journey_text(cls, value: str) -> str:
         return value.strip()
@@ -132,6 +135,14 @@ class LoginJourney(BaseModel):
         value = value.strip()
         if not value.startswith("/") or value.startswith("//"):
             raise ValueError("Success path must be a site-relative path beginning with /")
+        return value
+
+    @field_validator("inventory_destination_path")
+    @classmethod
+    def validate_inventory_destination_path(cls, value: str) -> str:
+        value = value.strip()
+        if value and (not value.startswith("/") or value.startswith("//")):
+            raise ValueError("Inventory destination path must be site-relative and begin with /")
         return value
 
     @field_validator("external_auth_url", "external_followup_url")
@@ -151,6 +162,8 @@ class LoginJourney(BaseModel):
             raise ValueError("Success text is required when path-and-text mode is selected")
         if self.authenticated_shell_check and not all((self.main_selector, self.heading_selector, self.navigation_selector)):
             raise ValueError("Main, heading, and navigation selectors are required for authenticated shell checks")
+        if bool(self.inventory_navigation_selector) != bool(self.inventory_destination_path):
+            raise ValueError("Inventory navigation selector and destination path must be configured together")
         if self.external_auth_url and self.external_followup_url:
             primary = str(self.external_auth_url).rstrip("/")
             followup = str(self.external_followup_url).rstrip("/")
@@ -167,6 +180,7 @@ LOGIN_DEFINITION_FIELDS = (
     "username_selector", "password_selector", "submit_selector", "success_path", "success_text",
     "success_mode", "authenticated_shell_check", "main_selector", "heading_selector",
     "navigation_selector", "external_auth_url", "external_followup_url",
+    "inventory_navigation_selector", "inventory_navigation_index", "inventory_destination_path",
 )
 
 
@@ -242,6 +256,9 @@ def connect_database() -> sqlite3.Connection:
             navigation_selector TEXT NOT NULL DEFAULT '',
             external_auth_url TEXT,
             external_followup_url TEXT,
+            inventory_navigation_selector TEXT NOT NULL DEFAULT '',
+            inventory_navigation_index INTEGER NOT NULL DEFAULT 0,
+            inventory_destination_path TEXT NOT NULL DEFAULT '',
             approved_at TEXT NOT NULL,
             execution_enabled INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (site_id) REFERENCES sites(id),
@@ -264,6 +281,12 @@ def connect_database() -> sqlite3.Connection:
         connection.execute("ALTER TABLE login_journeys ADD COLUMN heading_selector TEXT NOT NULL DEFAULT ''")
     if "navigation_selector" not in login_journey_columns:
         connection.execute("ALTER TABLE login_journeys ADD COLUMN navigation_selector TEXT NOT NULL DEFAULT ''")
+    if "inventory_navigation_selector" not in login_journey_columns:
+        connection.execute("ALTER TABLE login_journeys ADD COLUMN inventory_navigation_selector TEXT NOT NULL DEFAULT ''")
+    if "inventory_navigation_index" not in login_journey_columns:
+        connection.execute("ALTER TABLE login_journeys ADD COLUMN inventory_navigation_index INTEGER NOT NULL DEFAULT 0")
+    if "inventory_destination_path" not in login_journey_columns:
+        connection.execute("ALTER TABLE login_journeys ADD COLUMN inventory_destination_path TEXT NOT NULL DEFAULT ''")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS authentication_profiles (
@@ -424,6 +447,9 @@ def approved_login_from_records(site: sqlite3.Row, profile: sqlite3.Row, interac
         navigation_selector=journey["navigation_selector"],
         external_auth_url=journey["external_auth_url"],
         external_followup_url=journey["external_followup_url"],
+        inventory_navigation_selector=journey.get("inventory_navigation_selector", ""),
+        inventory_navigation_index=int(journey.get("inventory_navigation_index", 0)),
+        inventory_destination_path=journey.get("inventory_destination_path", ""),
     )
 
 
@@ -465,7 +491,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.21",
+    version="0.0.22",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -932,6 +958,9 @@ async def get_login_journey(site_id: str) -> dict:
         "navigation_selector": row["navigation_selector"],
         "external_auth_url": row["external_auth_url"] or "",
         "external_followup_url": row["external_followup_url"] or "",
+        "inventory_navigation_selector": row["inventory_navigation_selector"],
+        "inventory_navigation_index": row["inventory_navigation_index"],
+        "inventory_destination_path": row["inventory_destination_path"],
         "approved_at": row["approved_at"],
         "interaction_definition_id": interaction["id"] if interaction else None,
         "interaction_version": interaction["version"] if interaction else None,
@@ -956,6 +985,8 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         allowed = site["allowed_path"].rstrip("/") or "/"
         if allowed != "/" and journey.success_path != allowed and not journey.success_path.startswith(f"{allowed}/"):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Success path is outside the allowed boundary.")
+        if journey.inventory_destination_path and allowed != "/" and journey.inventory_destination_path != allowed and not journey.inventory_destination_path.startswith(f"{allowed}/"):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Inventory destination path is outside the allowed boundary.")
         approved_at = datetime.now(UTC).isoformat()
         definition_json = json.dumps(login_definition(journey), sort_keys=True)
         latest_interaction = connection.execute(
@@ -986,7 +1017,8 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 success_path, success_text, success_mode, authenticated_shell_check,
                 main_selector, heading_selector, navigation_selector,
                 external_auth_url, external_followup_url, approved_at, execution_enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                , inventory_navigation_selector, inventory_navigation_index, inventory_destination_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
             ON CONFLICT(site_id) DO UPDATE SET
                 username_selector = excluded.username_selector,
                 password_selector = excluded.password_selector,
@@ -1000,6 +1032,9 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 navigation_selector = excluded.navigation_selector,
                 external_auth_url = excluded.external_auth_url,
                 external_followup_url = excluded.external_followup_url,
+                inventory_navigation_selector = excluded.inventory_navigation_selector,
+                inventory_navigation_index = excluded.inventory_navigation_index,
+                inventory_destination_path = excluded.inventory_destination_path,
                 approved_at = excluded.approved_at,
                 execution_enabled = 0
             """,
@@ -1018,6 +1053,9 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 str(journey.external_auth_url) if journey.external_auth_url else None,
                 str(journey.external_followup_url) if journey.external_followup_url else None,
                 approved_at,
+                journey.inventory_navigation_selector,
+                journey.inventory_navigation_index,
+                journey.inventory_destination_path,
             ),
         )
         connection.commit()
@@ -1034,6 +1072,9 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         "navigation_selector": journey.navigation_selector,
         "external_auth_url": str(journey.external_auth_url) if journey.external_auth_url else "",
         "external_followup_url": str(journey.external_followup_url) if journey.external_followup_url else "",
+        "inventory_navigation_selector": journey.inventory_navigation_selector,
+        "inventory_navigation_index": journey.inventory_navigation_index,
+        "inventory_destination_path": journey.inventory_destination_path,
         "interaction_definition_id": interaction_id,
         "interaction_version": interaction_version,
     }

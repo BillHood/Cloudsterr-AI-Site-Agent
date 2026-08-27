@@ -116,6 +116,9 @@ class ApprovedLogin:
     navigation_selector: str = ""
     external_auth_url: str | None = None
     external_followup_url: str | None = None
+    inventory_navigation_selector: str = ""
+    inventory_navigation_index: int = 0
+    inventory_destination_path: str = ""
 
     @property
     def origin(self) -> str:
@@ -230,7 +233,28 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             shell_matches = shell_checks is None or all(shell_checks.values())
             success_evidence_matches = path_matches and (login.success_mode == "exact_path" or bool(text_matches)) and shell_matches
             control_inventory = None
+            inventory_navigation_matches = None
             if collect_control_inventory and success_evidence_matches:
+                if login.inventory_navigation_selector and login.inventory_destination_path:
+                    navigation_control = page.locator(login.inventory_navigation_selector).nth(login.inventory_navigation_index)
+                    await navigation_control.click(timeout=5_000)
+                    stage = "INVENTORY_NAVIGATION_CLICKED"
+                    await page.wait_for_url(
+                        lambda url: (
+                            login.permitted_url(str(url))
+                            and urlparse(str(url)).path.rstrip("/") == login.inventory_destination_path.rstrip("/")
+                        ),
+                        wait_until="domcontentloaded",
+                        timeout=10_000,
+                    )
+                    inventory_navigation_matches = (
+                        login.permitted_url(page.url)
+                        and urlparse(page.url).path.rstrip("/") == login.inventory_destination_path.rstrip("/")
+                    )
+                    if not inventory_navigation_matches:
+                        raise RuntimeError("Approved inventory destination was not reached")
+                    final_url = page.url
+                    stage = "INVENTORY_DESTINATION_REACHED"
                 raw_controls = await page.locator(
                     "input, textarea, button, [contenteditable='true'], [role='log'], [role='status'], [aria-live]"
                 ).evaluate_all(
@@ -278,6 +302,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "text_matches": text_matches,
                 "shell_checks": shell_checks,
                 "control_inventory": control_inventory,
+                "inventory_navigation_matches": inventory_navigation_matches,
                 "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],

@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.21"}
+    assert response.json() == {"status": "ok", "version": "0.0.22"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -224,6 +224,9 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
             "main_selector": "main",
             "heading_selector": "h1, h2",
             "navigation_selector": "nav",
+            "inventory_navigation_selector": ".dashboard-nav-item-primary",
+            "inventory_navigation_index": 2,
+            "inventory_destination_path": "/public/fred",
             "approval_confirmed": True,
         },
     )
@@ -236,6 +239,9 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     assert stored_journey.json()["external_auth_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
     assert stored_journey.json()["external_followup_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:lookup"
     assert stored_journey.json()["authenticated_shell_check"] is True
+    assert stored_journey.json()["inventory_navigation_selector"] == ".dashboard-nav-item-primary"
+    assert stored_journey.json()["inventory_navigation_index"] == 2
+    assert stored_journey.json()["inventory_destination_path"] == "/public/fred"
 
     monkeypatch.setenv("CLOUDSTERR_TEST_USERNAME", "test-user-value")
     monkeypatch.setenv("CLOUDSTERR_TEST_PASSWORD", "test-password-value")
@@ -297,7 +303,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.21</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.22</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -453,6 +459,29 @@ def test_login_journey_rejects_broad_or_query_bearing_external_auth_url() -> Non
             "external_followup_url": "https://identity.example/v1/login",
         },
     ).status_code == 422
+
+
+def test_inventory_navigation_requires_selector_and_bounded_destination() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/public/login", "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD", "test_account_confirmed": True},
+    )
+    base_payload = {
+        "username_selector": "#email", "password_selector": "#password", "submit_selector": "button",
+        "success_path": "/public/dashboard", "success_text": "", "success_mode": "exact_path", "approval_confirmed": True,
+    }
+    missing_selector = client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={**base_payload, "inventory_destination_path": "/public/fred"},
+    )
+    outside_boundary = client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={**base_payload, "inventory_navigation_selector": ".chat", "inventory_destination_path": "/dashboard/fred"},
+    )
+    assert missing_selector.status_code == 422
+    assert outside_boundary.status_code == 422
 
 
 def test_blocked_request_evidence_excludes_query_and_fragment() -> None:
