@@ -67,6 +67,7 @@ class ApprovedLogin:
     submit_selector: str
     success_path: str
     success_text: str
+    success_mode: str = "path_and_text"
     external_auth_url: str | None = None
     external_followup_url: str | None = None
 
@@ -102,6 +103,15 @@ class ApprovedLogin:
 
     def permits_auth_submission(self, url: str) -> bool:
         return self.approved_auth_endpoint(url) is not None
+
+    def success_path_matches(self, url: str) -> bool:
+        actual = urlparse(url)
+        expected = urlparse(urljoin(f"{self.base_url.rstrip('/')}/", self.success_path.lstrip("/")))
+        return (
+            actual.scheme == expected.scheme
+            and actual.netloc == expected.netloc
+            and actual.path.rstrip("/") == expected.path.rstrip("/")
+        )
 
 
 async def execute_approved_login(login: ApprovedLogin, username: str, password: str) -> dict:
@@ -162,9 +172,9 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             stage = "SUBMIT_CLICKED"
             await page.wait_for_timeout(2_000)
             final_url = page.url
-            expected_url = urljoin(f"{login.base_url.rstrip('/')}/", login.success_path.lstrip("/"))
-            path_matches = urlparse(final_url).path.rstrip("/") == urlparse(expected_url).path.rstrip("/")
-            text_matches = await page.get_by_text(login.success_text, exact=False).count() > 0
+            path_matches = login.success_path_matches(final_url)
+            text_matches = None if login.success_mode == "exact_path" else await page.get_by_text(login.success_text, exact=False).count() > 0
+            success_evidence_matches = path_matches and (login.success_mode == "exact_path" or bool(text_matches))
             error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
             visible_errors = [
                 _redact(item, (username, password))
@@ -173,7 +183,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             ][:5]
             status, outcome = classify_login_result(
                 path_matches=path_matches,
-                text_matches=text_matches,
+                text_matches=success_evidence_matches,
                 submission_used=document_submission_used or bool(used_auth_endpoints),
                 blocked_requests=blocked_requests,
                 visible_errors=visible_errors,

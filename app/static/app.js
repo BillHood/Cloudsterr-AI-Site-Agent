@@ -327,7 +327,7 @@ async function openAuthentication(button) {
   const journey = await journeyResponse.json();
   loginJourneyForm.dataset.siteId = button.dataset.siteId;
   loginJourneyForm.dataset.siteName = button.dataset.siteName;
-  for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text", "external_auth_url", "external_followup_url"]) {
+  for (const name of ["username_selector", "password_selector", "submit_selector", "success_path", "success_text", "success_mode", "external_auth_url", "external_followup_url"]) {
     loginJourneyForm.elements[name].value = journey[name] || "";
   }
   loginJourneyForm.elements.approval_confirmed.checked = false;

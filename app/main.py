@@ -111,7 +111,8 @@ class LoginJourney(BaseModel):
     password_selector: str = Field(min_length=1, max_length=300)
     submit_selector: str = Field(min_length=1, max_length=300)
     success_path: str = Field(min_length=1, max_length=500)
-    success_text: str = Field(min_length=1, max_length=300)
+    success_text: str = Field(default="", max_length=300)
+    success_mode: Literal["path_and_text", "exact_path"] = "path_and_text"
     external_auth_url: HttpUrl | None = None
     external_followup_url: HttpUrl | None = None
     approval_confirmed: bool
@@ -142,6 +143,8 @@ class LoginJourney(BaseModel):
 
     @model_validator(mode="after")
     def require_distinct_external_endpoints(self):
+        if self.success_mode == "path_and_text" and not self.success_text:
+            raise ValueError("Success text is required when path-and-text mode is selected")
         if self.external_auth_url and self.external_followup_url:
             primary = str(self.external_auth_url).rstrip("/")
             followup = str(self.external_followup_url).rstrip("/")
@@ -202,6 +205,7 @@ def connect_database() -> sqlite3.Connection:
             submit_selector TEXT NOT NULL,
             success_path TEXT NOT NULL,
             success_text TEXT NOT NULL,
+            success_mode TEXT NOT NULL DEFAULT 'path_and_text',
             external_auth_url TEXT,
             external_followup_url TEXT,
             approved_at TEXT NOT NULL,
@@ -216,6 +220,8 @@ def connect_database() -> sqlite3.Connection:
         connection.execute("ALTER TABLE login_journeys ADD COLUMN external_auth_url TEXT")
     if "external_followup_url" not in login_journey_columns:
         connection.execute("ALTER TABLE login_journeys ADD COLUMN external_followup_url TEXT")
+    if "success_mode" not in login_journey_columns:
+        connection.execute("ALTER TABLE login_journeys ADD COLUMN success_mode TEXT NOT NULL DEFAULT 'path_and_text'")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS authentication_profiles (
@@ -352,7 +358,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.14",
+    version="0.0.15",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -808,6 +814,7 @@ async def get_login_journey(site_id: str) -> dict:
         "submit_selector": row["submit_selector"],
         "success_path": row["success_path"],
         "success_text": row["success_text"],
+        "success_mode": row["success_mode"],
         "external_auth_url": row["external_auth_url"] or "",
         "external_followup_url": row["external_followup_url"] or "",
         "approved_at": row["approved_at"],
@@ -837,14 +844,15 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
             """
             INSERT INTO login_journeys (
                 site_id, username_selector, password_selector, submit_selector,
-                success_path, success_text, external_auth_url, external_followup_url, approved_at, execution_enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                success_path, success_text, success_mode, external_auth_url, external_followup_url, approved_at, execution_enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(site_id) DO UPDATE SET
                 username_selector = excluded.username_selector,
                 password_selector = excluded.password_selector,
                 submit_selector = excluded.submit_selector,
                 success_path = excluded.success_path,
                 success_text = excluded.success_text,
+                success_mode = excluded.success_mode,
                 external_auth_url = excluded.external_auth_url,
                 external_followup_url = excluded.external_followup_url,
                 approved_at = excluded.approved_at,
@@ -857,6 +865,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
                 journey.submit_selector,
                 journey.success_path,
                 journey.success_text,
+                journey.success_mode,
                 str(journey.external_auth_url) if journey.external_auth_url else None,
                 str(journey.external_followup_url) if journey.external_followup_url else None,
                 approved_at,
@@ -869,6 +878,7 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         "execution_enabled": False,
         "success_path": journey.success_path,
         "success_text": journey.success_text,
+        "success_mode": journey.success_mode,
         "external_auth_url": str(journey.external_auth_url) if journey.external_auth_url else "",
         "external_followup_url": str(journey.external_followup_url) if journey.external_followup_url else "",
     }
@@ -905,6 +915,7 @@ async def run_login_test(site_id: str, request: LoginExecutionRequest) -> dict:
         submit_selector=journey["submit_selector"],
         success_path=journey["success_path"],
         success_text=journey["success_text"],
+        success_mode=journey["success_mode"],
         external_auth_url=journey["external_auth_url"],
         external_followup_url=journey["external_followup_url"],
     )

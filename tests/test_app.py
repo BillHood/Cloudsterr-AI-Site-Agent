@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.14"}
+    assert response.json() == {"status": "ok", "version": "0.0.15"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -217,6 +217,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
             "submit_selector": "button[type='submit']",
             "success_path": "/public/dashboard",
             "success_text": "Welcome",
+            "success_mode": "path_and_text",
             "external_auth_url": "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
             "external_followup_url": "https://identitytoolkit.googleapis.com/v1/accounts:lookup",
             "approval_confirmed": True,
@@ -226,6 +227,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
     assert journey.json()["execution_enabled"] is False
     stored_journey = client.get(f"/api/sites/{site_id}/login-journey")
     assert stored_journey.json()["success_text"] == "Welcome"
+    assert stored_journey.json()["success_mode"] == "path_and_text"
     assert stored_journey.json()["external_auth_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
     assert stored_journey.json()["external_followup_url"] == "https://identitytoolkit.googleapis.com/v1/accounts:lookup"
 
@@ -234,6 +236,7 @@ def test_authentication_profile_stores_references_not_secrets(monkeypatch) -> No
 
     async def fake_login(approved, username, password):
         assert approved.success_path == "/public/dashboard"
+        assert approved.success_mode == "path_and_text"
         assert approved.external_auth_url == "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
         assert approved.external_followup_url == "https://identitytoolkit.googleapis.com/v1/accounts:lookup"
         assert username == "test-user-value"
@@ -284,7 +287,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.14</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.15</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -325,6 +328,33 @@ def test_external_auth_boundary_allows_only_exact_https_endpoint() -> None:
     assert login.permits_auth_submission("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=redacted")
     assert not login.permits_auth_submission("https://securetoken.googleapis.com/v1/token")
     assert not login.permits_auth_submission("http://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword")
+    assert login.success_path_matches("https://example.com/dashboard")
+    assert not login.success_path_matches("https://example.com/login")
+    assert not login.success_path_matches("https://example.com/dashboard/other")
+    assert not login.success_path_matches("https://attacker.example/dashboard")
+
+
+def test_exact_path_mode_allows_empty_success_text() -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/public/login", "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD", "test_account_confirmed": True},
+    )
+    response = client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={
+            "username_selector": "#email",
+            "password_selector": "#password",
+            "submit_selector": "button",
+            "success_path": "/public/dashboard",
+            "success_text": "",
+            "success_mode": "exact_path",
+            "approval_confirmed": True,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["success_mode"] == "exact_path"
 
 
 def test_login_journey_rejects_broad_or_query_bearing_external_auth_url() -> None:
