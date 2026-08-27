@@ -225,6 +225,51 @@ FRED_ONLINE_CHECK = {
     "same_session_response_required": True,
 }
 
+PLAN_CATALOG = {
+    "free": {
+        "name": "Free", "price_monthly": 0, "price_annual_monthly": 0,
+        "site_limit": 10, "browser_run_limit": 1_000, "api_run_limit": 10_000,
+        "allowed_frequencies": ["every_5_minutes", "every_30_minutes", "hourly", "daily", "weekly"],
+        "history_days": 7, "user_limit": 1,
+    },
+    "starter": {
+        "name": "Starter", "price_monthly": 15, "price_annual_monthly": 12,
+        "site_limit": 50, "browser_run_limit": 3_000, "api_run_limit": 25_000,
+        "allowed_frequencies": ["every_minute", "every_5_minutes", "every_30_minutes", "hourly", "daily", "weekly"],
+        "history_days": 90, "user_limit": 3,
+    },
+}
+
+
+def current_plan_key() -> str:
+    configured = os.environ.get("CLOUDSTERR_PLAN", "free").strip().lower()
+    return configured if configured in PLAN_CATALOG else "free"
+
+
+def browser_usage(connection: sqlite3.Connection, now: datetime | None = None) -> int:
+    current = now or datetime.now(UTC)
+    month_start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    tables = ("authentication_runs", "chat_inventory_runs", "chat_probe_runs", "fred_monitor_runs")
+    return sum(connection.execute(f"SELECT COUNT(*) FROM {table} WHERE started_at >= ?", (month_start,)).fetchone()[0] for table in tables)
+
+
+def plan_snapshot(connection: sqlite3.Connection) -> dict:
+    key = current_plan_key()
+    plan = PLAN_CATALOG[key]
+    used = browser_usage(connection)
+    return {
+        "key": key, **plan, "browser_runs_used": used,
+        "browser_runs_remaining": max(0, plan["browser_run_limit"] - used),
+        "api_runs_used": 0, "api_runs_remaining": plan["api_run_limit"],
+        "api_checks_available": False,
+    }
+
+
+def require_browser_capacity(connection: sqlite3.Connection) -> None:
+    plan = plan_snapshot(connection)
+    if plan["browser_runs_remaining"] <= 0:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan browser-run limit has been reached for this month.")
+
 
 LOGIN_DEFINITION_FIELDS = (
     "username_selector", "password_selector", "submit_selector", "success_path", "success_text",
@@ -582,12 +627,16 @@ async def run_scheduled_fred_monitor(site_id: str) -> dict:
     now = datetime.now(UTC)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     with closing(connect_database()) as connection:
+        require_browser_capacity(connection)
+        plan = plan_snapshot(connection)
         schedule = connection.execute("SELECT * FROM fred_monitor_schedules WHERE site_id = ?", (site_id,)).fetchone()
         site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
         profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
         if schedule is None or not schedule["enabled"]:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The Fred monitor is disabled.")
+        if schedule["frequency"] not in plan["allowed_frequencies"]:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This monitor frequency is not available on the current plan.")
         if site is None or profile is None or login is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approved site authentication is required for the Fred monitor.")
         monthly_count = connection.execute(
@@ -673,7 +722,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.1.2",
+    version="0.1.3",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -701,6 +750,12 @@ async def demonstration_about() -> FileResponse:
 @app.get("/api/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok", "version": app.version}
+
+
+@app.get("/api/account/plan", tags=["account"])
+async def get_account_plan() -> dict:
+    with closing(connect_database()) as connection:
+        return plan_snapshot(connection)
 
 
 @app.get("/api/sites", tags=["sites"])
@@ -736,6 +791,10 @@ async def register_site(site: SiteRegistration) -> dict[str, str | int | None | 
 
     try:
         with closing(connect_database()) as connection:
+            plan = plan_snapshot(connection)
+            site_count = connection.execute("SELECT COUNT(*) FROM sites").fetchone()[0]
+            if site_count >= plan["site_limit"]:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan allows up to {plan['site_limit']} registered sites.")
             connection.execute(
                 """
                 INSERT INTO sites (
@@ -1459,6 +1518,7 @@ async def run_fixed_chat_probe_once(site_id: str, request: LoginExecutionRequest
     run_id = f"fixed-chat-probe-v1-{site_id}"
     started_at = datetime.now(UTC).isoformat()
     with closing(connect_database()) as connection:
+        require_browser_capacity(connection)
         site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
         profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
@@ -1659,6 +1719,7 @@ async def run_fred_online_check_once(site_id: str, request: LoginExecutionReques
     run_id = f"fred-online-check-v1-{site_id}"
     started_at = datetime.now(UTC).isoformat()
     with closing(connect_database()) as connection:
+        require_browser_capacity(connection)
         site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
         profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
@@ -1732,6 +1793,12 @@ async def save_fred_monitor_schedule(site_id: str, schedule: FredMonitorSchedule
         )
     now = datetime.now(UTC)
     with closing(connect_database()) as connection:
+        plan = plan_snapshot(connection)
+        if schedule.enabled and schedule.frequency not in plan["allowed_frequencies"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Every-minute monitoring requires Starter. The {plan['name']} plan supports 5 minutes or slower.",
+            )
         site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
         profile = connection.execute("SELECT site_id FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT id FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
@@ -1762,7 +1829,12 @@ async def save_fred_monitor_schedule(site_id: str, schedule: FredMonitorSchedule
 @app.get("/api/sites/{site_id}/fred-monitor-runs", tags=["schedules"])
 async def list_fred_monitor_runs(site_id: str) -> dict:
     with closing(connect_database()) as connection:
-        rows = connection.execute("SELECT * FROM fred_monitor_runs WHERE site_id = ? ORDER BY started_at DESC", (site_id,)).fetchall()
+        plan = plan_snapshot(connection)
+        retained_after = (datetime.now(UTC) - timedelta(days=plan["history_days"])).isoformat()
+        rows = connection.execute(
+            "SELECT * FROM fred_monitor_runs WHERE site_id = ? AND started_at >= ? ORDER BY started_at DESC",
+            (site_id, retained_after),
+        ).fetchall()
     return {
         "runs": [
             {

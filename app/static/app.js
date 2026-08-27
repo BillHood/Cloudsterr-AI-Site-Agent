@@ -38,6 +38,14 @@ const fredMonitorForm = document.querySelector("#fred-monitor-form");
 const fredMonitorMessage = document.querySelector("#fred-monitor-message");
 const fredMonitorHistory = document.querySelector("#fred-monitor-history");
 const fredMonitorMonthlyDefaults = {every_minute: 43200, every_5_minutes: 8640, every_30_minutes: 1440, hourly: 720, daily: 30, weekly: 4};
+const planBadge = document.querySelector("#plan-badge");
+const planTitle = document.querySelector("#plan-title");
+const planPrice = document.querySelector("#plan-price");
+const browserUsage = document.querySelector("#browser-usage");
+const apiUsage = document.querySelector("#api-usage");
+const siteAllowance = document.querySelector("#site-allowance");
+const planMessage = document.querySelector("#plan-message");
+let activePlan = null;
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -156,6 +164,26 @@ function formatApiError(data, fallback) {
   }
   if (detail && typeof detail.message === "string") return detail.message;
   return fallback;
+}
+
+async function loadPlan() {
+  const response = await fetch("/api/account/plan", {headers: {Accept: "application/json"}});
+  const plan = await response.json();
+  if (!response.ok) throw new Error(formatApiError(plan, "Account plan could not be loaded."));
+  activePlan = plan;
+  planBadge.textContent = `${plan.name} plan`;
+  planTitle.textContent = plan.name;
+  planPrice.textContent = plan.key === "free" ? "$0 per month" : `$${plan.price_annual_monthly}/month billed annually · $${plan.price_monthly} monthly`;
+  browserUsage.textContent = `${plan.browser_runs_used.toLocaleString()} / ${plan.browser_run_limit.toLocaleString()}`;
+  apiUsage.textContent = `${plan.api_runs_used.toLocaleString()} / ${plan.api_run_limit.toLocaleString()}`;
+  siteAllowance.textContent = plan.site_limit.toLocaleString();
+  planMessage.textContent = plan.key === "free"
+    ? "Free will include email, Slack, and webhook alerts when alert delivery is connected. Every-minute browser monitoring requires Starter."
+    : "Starter includes every-minute schedules. Usage stops safely at the monthly plan allowance; billing integration is not yet connected.";
+  for (const option of fredMonitorForm.elements.frequency.options) {
+    option.disabled = !plan.allowed_frequencies.includes(option.value);
+    option.title = option.disabled ? "Requires Starter" : "";
+  }
 }
 
 function renderSites(sites) {
@@ -699,7 +727,8 @@ async function loadFredMonitor(siteId) {
   fredMonitorForm.elements.monthly_limit.value = schedule.monthly_limit;
   fredMonitorForm.elements.enabled.checked = schedule.enabled;
   for (const name of ["exact_prompt_confirmed", "real_message_confirmed", "bounded_network_confirmed"]) fredMonitorForm.elements[name].checked = false;
-  fredMonitorMessage.textContent = schedule.enabled && schedule.next_run_at ? `Enabled. Next run: ${new Date(schedule.next_run_at).toLocaleString()}` : "Automated Fred monitoring is disabled.";
+  const quotaNote = activePlan ? ` ${activePlan.browser_runs_remaining.toLocaleString()} plan runs remain this month.` : "";
+  fredMonitorMessage.textContent = schedule.enabled && schedule.next_run_at ? `Enabled. Next run: ${new Date(schedule.next_run_at).toLocaleString()}.${quotaNote}` : `Automated Fred monitoring is disabled.${quotaNote}`;
   renderFredMonitorRuns(runs.runs || []);
 }
 
@@ -729,7 +758,11 @@ async function saveFredMonitor(event) {
 }
 
 fredMonitorForm.elements.frequency.addEventListener("change", (event) => {
-  fredMonitorForm.elements.monthly_limit.value = fredMonitorMonthlyDefaults[event.target.value];
+  const projected = fredMonitorMonthlyDefaults[event.target.value];
+  fredMonitorForm.elements.monthly_limit.value = projected;
+  if (activePlan && projected > activePlan.browser_run_limit) {
+    fredMonitorMessage.textContent = `This frequency can schedule up to ${projected.toLocaleString()} runs monthly; the ${activePlan.name} plan stops at ${activePlan.browser_run_limit.toLocaleString()}.`;
+  }
 });
 
 async function saveAuthentication(event) {
@@ -762,6 +795,7 @@ async function loadSites() {
   message.textContent = "Refreshing local site configurations…";
 
   try {
+    await loadPlan();
     const response = await fetch("/api/sites", {headers: {Accept: "application/json"}});
     if (!response.ok) throw new Error(`Local API returned ${response.status}`);
     const data = await response.json();

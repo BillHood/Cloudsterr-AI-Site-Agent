@@ -33,7 +33,24 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.2"}
+    assert response.json() == {"status": "ok", "version": "0.1.3"}
+
+
+def test_plan_endpoint_defaults_to_free_and_supports_trusted_starter_configuration(monkeypatch) -> None:
+    monkeypatch.delenv("CLOUDSTERR_PLAN", raising=False)
+    free = client.get("/api/account/plan")
+    assert free.status_code == 200
+    assert free.json()["key"] == "free"
+    assert free.json()["browser_run_limit"] == 1_000
+    assert "every_minute" not in free.json()["allowed_frequencies"]
+    assert free.json()["api_checks_available"] is False
+
+    monkeypatch.setenv("CLOUDSTERR_PLAN", "starter")
+    starter = client.get("/api/account/plan")
+    assert starter.status_code == 200
+    assert starter.json()["price_annual_monthly"] == 12
+    assert starter.json()["browser_run_limit"] == 3_000
+    assert "every_minute" in starter.json()["allowed_frequencies"]
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -311,7 +328,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.1.2</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.1.3</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -615,6 +632,7 @@ def test_chat_inventory_requires_confirmation_and_submits_no_message(monkeypatch
 
 
 def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
+    monkeypatch.setenv("CLOUDSTERR_PLAN", "starter")
     created = client.post("/api/sites", json=registration_payload())
     site_id = created.json()["id"]
     client.put(
