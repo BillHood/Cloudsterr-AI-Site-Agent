@@ -21,6 +21,9 @@ const loginTestButton = document.querySelector("#login-test-button");
 const loginTestMessage = document.querySelector("#login-test-message");
 const loginTestEvidence = document.querySelector("#login-test-evidence");
 const interactionVersions = document.querySelector("#interaction-versions");
+const chatInventoryButton = document.querySelector("#chat-inventory-button");
+const chatInventoryMessage = document.querySelector("#chat-inventory-message");
+const chatInventoryEvidence = document.querySelector("#chat-inventory-evidence");
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -90,6 +93,37 @@ async function loadInteractionVersions(siteId) {
   const data = await response.json();
   if (!response.ok) throw new Error(formatApiError(data, "Interaction versions could not be loaded."));
   renderInteractionVersions(data);
+}
+
+function renderChatInventory(runs) {
+  chatInventoryEvidence.replaceChildren();
+  if (runs.length === 0) {
+    chatInventoryEvidence.textContent = "No authenticated chat inventory has been recorded.";
+    return;
+  }
+  const run = runs[0];
+  const card = document.createElement("article");
+  card.className = `run-card result-${run.status.toLowerCase()}`;
+  const heading = document.createElement("h4");
+  heading.textContent = `${run.status} · Chat control inventory`;
+  card.append(heading);
+  appendEvidenceDetail(card, "Time", new Date(run.completed_at).toLocaleString());
+  appendEvidenceDetail(card, "Login prerequisite", `v${run.interaction_version}`);
+  appendEvidenceDetail(card, "Chat message submitted", run.evidence.chat_message_submitted ? "yes" : "no");
+  appendEvidenceDetail(card, "Page text captured", run.evidence.page_text_captured ? "yes" : "no");
+  const controls = run.evidence.control_inventory || [];
+  appendEvidenceDetail(card, "Candidate controls", String(controls.length));
+  for (const [index, control] of controls.entries()) {
+    appendEvidenceDetail(card, `Control ${index + 1}`, Object.entries(control).map(([key, value]) => `${key}=${value}`).join("; "));
+  }
+  chatInventoryEvidence.append(card);
+}
+
+async function loadChatInventories(siteId) {
+  const response = await fetch(`/api/sites/${siteId}/chat-inventories`, {headers: {Accept: "application/json"}});
+  const data = await response.json();
+  if (!response.ok) throw new Error(formatApiError(data, "Chat inventory could not be loaded."));
+  renderChatInventory(data.runs);
 }
 
 function formatApiError(data, fallback) {
@@ -409,8 +443,13 @@ async function openAuthentication(button) {
   loginTestButton.dataset.siteName = button.dataset.siteName;
   loginTestButton.disabled = !(data.configured && journey.configured);
   loginTestMessage.textContent = loginTestButton.disabled ? "Configure references and approve a login definition first." : "Ready for a manually confirmed login test. Credentials will be read from the server environment.";
+  chatInventoryButton.dataset.siteId = button.dataset.siteId;
+  chatInventoryButton.dataset.siteName = button.dataset.siteName;
+  chatInventoryButton.disabled = loginTestButton.disabled;
+  chatInventoryMessage.textContent = chatInventoryButton.disabled ? "Approve a login interaction first." : "Ready for a separately confirmed metadata-only inventory. No chat message will be submitted.";
   await loadLoginEvidence(button.dataset.siteId);
   await loadInteractionVersions(button.dataset.siteId);
+  await loadChatInventories(button.dataset.siteId);
   document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
   authenticationPanel.hidden = false;
   authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
@@ -463,6 +502,30 @@ async function runLoginTest() {
     loginTestMessage.textContent = error.message;
   } finally {
     loginTestButton.disabled = false;
+  }
+}
+
+async function runChatInventory() {
+  if (!window.confirm(`Log in to ${chatInventoryButton.dataset.siteName} once and inventory sanitized chat-control attributes? No chat message will be typed or submitted.`)) return;
+  chatInventoryButton.disabled = true;
+  chatInventoryMessage.classList.remove("error");
+  chatInventoryMessage.textContent = "Running the approved metadata-only chat inventory…";
+  try {
+    const response = await fetch(`/api/sites/${chatInventoryButton.dataset.siteId}/chat-inventory`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: JSON.stringify({execution_confirmed: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(formatApiError(data, "Chat inventory failed."));
+    chatInventoryMessage.classList.toggle("error", data.status !== "PASS");
+    chatInventoryMessage.textContent = `Chat inventory ${data.status}. ${data.control_inventory?.length || 0} candidate controls recorded; no chat message was submitted.`;
+    await loadChatInventories(chatInventoryButton.dataset.siteId);
+  } catch (error) {
+    chatInventoryMessage.classList.add("error");
+    chatInventoryMessage.textContent = error.message;
+  } finally {
+    chatInventoryButton.disabled = false;
   }
 }
 
@@ -577,4 +640,5 @@ scheduleForm.addEventListener("submit", saveSchedule);
 authenticationForm.addEventListener("submit", saveAuthentication);
 loginJourneyForm.addEventListener("submit", saveLoginJourney);
 loginTestButton.addEventListener("click", runLoginTest);
+chatInventoryButton.addEventListener("click", runChatInventory);
 loadSites();

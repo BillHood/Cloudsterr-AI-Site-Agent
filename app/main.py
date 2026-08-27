@@ -356,6 +356,22 @@ def connect_database() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chat_inventory_runs (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            interaction_definition_id TEXT NOT NULL,
+            interaction_version INTEGER NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id),
+            FOREIGN KEY (interaction_definition_id) REFERENCES interaction_definitions(id)
+        )
+        """
+    )
     existing_journeys = connection.execute("SELECT * FROM login_journeys").fetchall()
     for journey in existing_journeys:
         existing_definition = connection.execute(
@@ -387,6 +403,28 @@ def serialize_site(row: sqlite3.Row) -> dict[str, str | int | None | list[str]]:
         "passed": 0,
         "failed": 0,
     }
+
+
+def approved_login_from_records(site: sqlite3.Row, profile: sqlite3.Row, interaction: sqlite3.Row) -> ApprovedLogin:
+    journey = json.loads(interaction["definition_json"])
+    return ApprovedLogin(
+        base_url=site["base_url"],
+        allowed_path=site["allowed_path"],
+        excluded_paths=tuple(item for item in site["excluded_paths"].split("\n") if item),
+        login_path=profile["login_path"],
+        username_selector=journey["username_selector"],
+        password_selector=journey["password_selector"],
+        submit_selector=journey["submit_selector"],
+        success_path=journey["success_path"],
+        success_text=journey["success_text"],
+        success_mode=journey["success_mode"],
+        authenticated_shell_check=bool(journey["authenticated_shell_check"]),
+        main_selector=journey["main_selector"],
+        heading_selector=journey["heading_selector"],
+        navigation_selector=journey["navigation_selector"],
+        external_auth_url=journey["external_auth_url"],
+        external_followup_url=journey["external_followup_url"],
+    )
 
 
 def next_scheduled_time(frequency: str, from_time: datetime | None = None) -> datetime:
@@ -427,7 +465,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.19",
+    version="0.0.20",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -1056,8 +1094,6 @@ async def run_login_test(site_id: str, request: LoginExecutionRequest) -> dict:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
     if profile is None or interaction is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Authentication references and an approved login definition are required.")
-    journey = json.loads(interaction["definition_json"])
-
     username = os.environ.get(profile["username_env"])
     password = os.environ.get(profile["password_env"])
     if not username or not password:
@@ -1066,24 +1102,7 @@ async def run_login_test(site_id: str, request: LoginExecutionRequest) -> dict:
             detail=f"Set {profile['username_env']} and {profile['password_env']} in the server environment before testing.",
         )
 
-    approved = ApprovedLogin(
-        base_url=site["base_url"],
-        allowed_path=site["allowed_path"],
-        excluded_paths=tuple(item for item in site["excluded_paths"].split("\n") if item),
-        login_path=profile["login_path"],
-        username_selector=journey["username_selector"],
-        password_selector=journey["password_selector"],
-        submit_selector=journey["submit_selector"],
-        success_path=journey["success_path"],
-        success_text=journey["success_text"],
-        success_mode=journey["success_mode"],
-        authenticated_shell_check=bool(journey["authenticated_shell_check"]),
-        main_selector=journey["main_selector"],
-        heading_selector=journey["heading_selector"],
-        navigation_selector=journey["navigation_selector"],
-        external_auth_url=journey["external_auth_url"],
-        external_followup_url=journey["external_followup_url"],
-    )
+    approved = approved_login_from_records(site, profile, interaction)
     run_id = str(uuid4())
     started_at = datetime.now(UTC).isoformat()
     try:
@@ -1116,6 +1135,77 @@ async def list_login_tests(site_id: str) -> dict:
                 "status": row["status"],
                 "interaction_definition_id": row["interaction_definition_id"],
                 "interaction_version": row["interaction_version"],
+                "evidence": sanitize_evidence(json.loads(row["evidence_json"])),
+            }
+            for row in rows
+        ]
+    }
+
+
+@app.post("/api/sites/{site_id}/chat-inventory", tags=["authentication"])
+async def run_chat_inventory(site_id: str, request: LoginExecutionRequest) -> dict:
+    if not request.execution_confirmed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Explicit confirmation is required for each authenticated chat inventory.")
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        interaction = connection.execute(
+            "SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1",
+            (site_id,),
+        ).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    if profile is None or interaction is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Authentication references and an approved login interaction are required.")
+    username = os.environ.get(profile["username_env"])
+    password = os.environ.get(profile["password_env"])
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Set {profile['username_env']} and {profile['password_env']} in the server environment before inventory.",
+        )
+    run_id = str(uuid4())
+    started_at = datetime.now(UTC).isoformat()
+    evidence = await execute_approved_login(
+        approved_login_from_records(site, profile, interaction),
+        username,
+        password,
+        collect_control_inventory=True,
+    )
+    evidence["visible_errors"] = []
+    evidence["page_text_captured"] = False
+    evidence["chat_message_submitted"] = False
+    completed_at = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        connection.execute(
+            "INSERT INTO chat_inventory_runs (id, site_id, interaction_definition_id, interaction_version, started_at, completed_at, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (run_id, site_id, interaction["id"], interaction["version"], started_at, completed_at, evidence["status"], json.dumps(evidence)),
+        )
+        connection.commit()
+    return {
+        "run_id": run_id,
+        "interaction_definition_id": interaction["id"],
+        "interaction_version": interaction["version"],
+        **evidence,
+    }
+
+
+@app.get("/api/sites/{site_id}/chat-inventories", tags=["authentication"])
+async def list_chat_inventories(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        rows = connection.execute(
+            "SELECT * FROM chat_inventory_runs WHERE site_id = ? ORDER BY started_at DESC",
+            (site_id,),
+        ).fetchall()
+    return {
+        "runs": [
+            {
+                "id": row["id"],
+                "interaction_definition_id": row["interaction_definition_id"],
+                "interaction_version": row["interaction_version"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "status": row["status"],
                 "evidence": sanitize_evidence(json.loads(row["evidence_json"])),
             }
             for row in rows

@@ -39,6 +39,23 @@ def sanitized_path(path: str) -> str:
     return "/".join(cleaned)
 
 
+def sanitized_dom_attribute(value: str | None) -> str | None:
+    if not value:
+        return None
+    value = " ".join(value.split())[:120]
+    if len(value) >= 16 and re.search(r"[A-Za-z]", value) and re.search(r"\d", value):
+        return "[REDACTED]"
+    return value
+
+
+def sanitize_control_inventory(items: list[dict]) -> list[dict]:
+    allowed = {"tag", "type", "id", "name", "role", "test_id", "contenteditable"}
+    return [
+        {key: sanitized_dom_attribute(str(value)) for key, value in item.items() if key in allowed and value not in (None, "")}
+        for item in items[:50]
+    ]
+
+
 def sanitize_evidence(evidence: dict) -> dict:
     sanitized = dict(evidence)
     for key in ("blocked_requests", "auth_responses"):
@@ -46,6 +63,8 @@ def sanitize_evidence(evidence: dict) -> dict:
             {**item, "path": sanitized_path(item.get("path", "/"))}
             for item in evidence.get(key, [])
         ]
+    if evidence.get("control_inventory") is not None:
+        sanitized["control_inventory"] = sanitize_control_inventory(evidence["control_inventory"])
     return sanitized
 
 
@@ -137,7 +156,7 @@ class ApprovedLogin:
         )
 
 
-async def execute_approved_login(login: ApprovedLogin, username: str, password: str) -> dict:
+async def execute_approved_login(login: ApprovedLogin, username: str, password: str, collect_control_inventory: bool = False) -> dict:
     """Execute exactly one approved login submission and return sanitized evidence."""
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
@@ -206,6 +225,22 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 }
             shell_matches = shell_checks is None or all(shell_checks.values())
             success_evidence_matches = path_matches and (login.success_mode == "exact_path" or bool(text_matches)) and shell_matches
+            control_inventory = None
+            if collect_control_inventory and success_evidence_matches:
+                raw_controls = await page.locator(
+                    "input, textarea, button, [contenteditable='true'], [role='log'], [role='status'], [aria-live]"
+                ).evaluate_all(
+                    """elements => elements.map(element => ({
+                        tag: element.tagName.toLowerCase(),
+                        type: element.getAttribute('type'),
+                        id: element.getAttribute('id'),
+                        name: element.getAttribute('name'),
+                        role: element.getAttribute('role'),
+                        test_id: element.getAttribute('data-testid'),
+                        contenteditable: element.getAttribute('contenteditable')
+                    }))"""
+                )
+                control_inventory = sanitize_control_inventory(raw_controls)
             error_locator = page.locator("[role='alert'], [aria-live='assertive'], .error, .alert")
             visible_errors = [
                 _redact(item, (username, password))
@@ -228,6 +263,7 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
                 "path_matches": path_matches,
                 "text_matches": text_matches,
                 "shell_checks": shell_checks,
+                "control_inventory": control_inventory,
                 "submission_count": int(document_submission_used) + len(used_auth_endpoints),
                 "visible_errors": visible_errors,
                 "blocked_requests": blocked_requests[:20],

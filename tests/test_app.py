@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.discovery import DiscoveryBoundary
-from app.authentication import ApprovedLogin, classify_login_result, sanitize_evidence, sanitized_request_evidence
+from app.authentication import ApprovedLogin, classify_login_result, sanitize_control_inventory, sanitize_evidence, sanitized_request_evidence
 from app.main import app
 
 client = TestClient(app)
@@ -31,7 +31,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.0.19"}
+    assert response.json() == {"status": "ok", "version": "0.0.20"}
 
 
 def test_register_and_list_site_without_running_it() -> None:
@@ -297,7 +297,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.0.19</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.0.20</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -478,3 +478,69 @@ def test_historical_evidence_redacts_identifier_like_path_segments() -> None:
     })
     assert evidence["blocked_requests"][0]["path"] == "/v1/users/[REDACTED]"
     assert "LWP4rPN048gqcH3o1Lr7xROJrcs2" not in str(evidence)
+
+
+def test_control_inventory_excludes_text_values_and_redacts_identifier_like_attributes() -> None:
+    controls = sanitize_control_inventory([
+        {
+            "tag": "textarea",
+            "id": "chat-input",
+            "name": "prompt",
+            "value": "private message",
+            "placeholder": "Ask Fred anything",
+            "text": "private response",
+        },
+        {"tag": "button", "id": "account-LWP4rPN048gqcH3o1Lr7xROJrcs2", "type": "submit"},
+    ])
+    assert controls[0] == {"tag": "textarea", "id": "chat-input", "name": "prompt"}
+    assert controls[1]["id"] == "[REDACTED]"
+    assert "private" not in str(controls)
+    assert "Fred" not in str(controls)
+
+
+def test_chat_inventory_requires_confirmation_and_submits_no_message(monkeypatch) -> None:
+    created = client.post("/api/sites", json=registration_payload())
+    site_id = created.json()["id"]
+    client.put(
+        f"/api/sites/{site_id}/authentication",
+        json={"login_path": "/public/login", "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD", "test_account_confirmed": True},
+    )
+    client.put(
+        f"/api/sites/{site_id}/login-journey",
+        json={
+            "username_selector": "#email",
+            "password_selector": "#password",
+            "submit_selector": "button",
+            "success_path": "/public/dashboard",
+            "success_text": "",
+            "success_mode": "exact_path",
+            "approval_confirmed": True,
+        },
+    )
+    assert client.post(f"/api/sites/{site_id}/chat-inventory", json={"execution_confirmed": False}).status_code == 422
+    monkeypatch.setenv("TEST_USERNAME", "inventory-user")
+    monkeypatch.setenv("TEST_PASSWORD", "inventory-password")
+
+    async def fake_inventory(approved, username, password, collect_control_inventory=False):
+        assert collect_control_inventory is True
+        assert username == "inventory-user"
+        assert password == "inventory-password"
+        return {
+            "status": "PASS",
+            "outcome": "SUCCESS",
+            "control_inventory": [{"tag": "textarea", "id": "chat-input"}],
+            "visible_errors": ["must be removed"],
+            "blocked_requests": [],
+            "auth_responses": [],
+        }
+
+    monkeypatch.setattr("app.main.execute_approved_login", fake_inventory)
+    result = client.post(f"/api/sites/{site_id}/chat-inventory", json={"execution_confirmed": True})
+    assert result.status_code == 200
+    assert result.json()["chat_message_submitted"] is False
+    assert result.json()["page_text_captured"] is False
+    assert result.json()["visible_errors"] == []
+    stored = client.get(f"/api/sites/{site_id}/chat-inventories").json()["runs"]
+    assert stored[0]["evidence"]["control_inventory"][0]["id"] == "chat-input"
+    assert "inventory-password" not in str(stored)
+    assert "must be removed" not in str(stored)
