@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.discovery import DiscoveryBoundary, discover
+from app.authentication import ApprovedLogin, execute_approved_login
 
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
@@ -126,6 +127,10 @@ class LoginJourney(BaseModel):
             raise ValueError("Success path must be a site-relative path beginning with /")
         return value
 
+
+class LoginExecutionRequest(BaseModel):
+    execution_confirmed: bool
+
 def database_path() -> Path:
     data_root = Path(os.environ.get("CLOUDSTERR_DATA_DIR", DEFAULT_DATA_ROOT))
     data_root.mkdir(parents=True, exist_ok=True)
@@ -150,6 +155,19 @@ def connect_database() -> sqlite3.Connection:
             excluded_paths TEXT NOT NULL,
             status TEXT NOT NULL,
             created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS authentication_runs (
+            id TEXT PRIMARY KEY,
+            site_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            FOREIGN KEY (site_id) REFERENCES sites(id)
         )
         """
     )
@@ -305,7 +323,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.8",
+    version="0.0.9",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -816,4 +834,73 @@ async def configure_login_journey(site_id: str, journey: LoginJourney) -> dict:
         "execution_enabled": False,
         "success_path": journey.success_path,
         "success_text": journey.success_text,
+    }
+
+
+@app.post("/api/sites/{site_id}/login-test", tags=["authentication"])
+async def run_login_test(site_id: str, request: LoginExecutionRequest) -> dict:
+    if not request.execution_confirmed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Explicit confirmation is required for each login attempt.")
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        journey = connection.execute("SELECT * FROM login_journeys WHERE site_id = ?", (site_id,)).fetchone()
+    if site is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+    if profile is None or journey is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Authentication references and an approved login definition are required.")
+
+    username = os.environ.get(profile["username_env"])
+    password = os.environ.get(profile["password_env"])
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Set {profile['username_env']} and {profile['password_env']} in the server environment before testing.",
+        )
+
+    approved = ApprovedLogin(
+        base_url=site["base_url"],
+        allowed_path=site["allowed_path"],
+        excluded_paths=tuple(item for item in site["excluded_paths"].split("\n") if item),
+        login_path=profile["login_path"],
+        username_selector=journey["username_selector"],
+        password_selector=journey["password_selector"],
+        submit_selector=journey["submit_selector"],
+        success_path=journey["success_path"],
+        success_text=journey["success_text"],
+    )
+    run_id = str(uuid4())
+    started_at = datetime.now(UTC).isoformat()
+    try:
+        evidence = await execute_approved_login(approved, username, password)
+    except Exception as error:
+        evidence = {"status": "BLOCKED", "failure": type(error).__name__}
+    completed_at = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        connection.execute(
+            "INSERT INTO authentication_runs (id, site_id, started_at, completed_at, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?)",
+            (run_id, site_id, started_at, completed_at, evidence["status"], json.dumps(evidence)),
+        )
+        connection.commit()
+    return {"run_id": run_id, **evidence}
+
+
+@app.get("/api/sites/{site_id}/login-tests", tags=["authentication"])
+async def list_login_tests(site_id: str) -> dict:
+    with closing(connect_database()) as connection:
+        rows = connection.execute(
+            "SELECT * FROM authentication_runs WHERE site_id = ? ORDER BY started_at DESC",
+            (site_id,),
+        ).fetchall()
+    return {
+        "runs": [
+            {
+                "id": row["id"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "status": row["status"],
+                "evidence": json.loads(row["evidence_json"]),
+            }
+            for row in rows
+        ]
     }

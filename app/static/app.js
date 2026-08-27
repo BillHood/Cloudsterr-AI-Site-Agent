@@ -17,6 +17,8 @@ const authenticationForm = document.querySelector("#authentication-form");
 const authenticationMessage = document.querySelector("#authentication-message");
 const loginJourneyForm = document.querySelector("#login-journey-form");
 const loginJourneyMessage = document.querySelector("#login-journey-message");
+const loginTestButton = document.querySelector("#login-test-button");
+const loginTestMessage = document.querySelector("#login-test-message");
 
 function formatApiError(data, fallback) {
   const detail = data?.detail;
@@ -330,6 +332,10 @@ async function openAuthentication(button) {
   }
   loginJourneyForm.elements.approval_confirmed.checked = false;
   loginJourneyMessage.textContent = journey.configured ? "Login definition approved. Execution remains disabled." : "No login definition is approved.";
+  loginTestButton.dataset.siteId = button.dataset.siteId;
+  loginTestButton.dataset.siteName = button.dataset.siteName;
+  loginTestButton.disabled = !(data.configured && journey.configured);
+  loginTestMessage.textContent = loginTestButton.disabled ? "Configure references and approve a login definition first." : "Ready for a manually confirmed login test. Credentials will be read from the server environment.";
   document.querySelector("#authentication-title").textContent = `${button.dataset.siteName} authentication`;
   authenticationPanel.hidden = false;
   authenticationPanel.scrollIntoView({behavior: "smooth", block: "start"});
@@ -354,6 +360,29 @@ async function saveLoginJourney(event) {
   }
   loginJourneyMessage.classList.remove("error");
   loginJourneyMessage.textContent = "Login definition approved. Execution remains disabled.";
+}
+
+async function runLoginTest() {
+  if (!window.confirm(`Submit the approved login form once for ${loginTestButton.dataset.siteName}? This will transmit the configured test credentials to that site.`)) return;
+  loginTestButton.disabled = true;
+  loginTestMessage.classList.remove("error");
+  loginTestMessage.textContent = "Running the approved login test…";
+  try {
+    const response = await fetch(`/api/sites/${loginTestButton.dataset.siteId}/login-test`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: JSON.stringify({execution_confirmed: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(formatApiError(data, "Login test failed."));
+    loginTestMessage.classList.toggle("error", data.status !== "PASS");
+    loginTestMessage.textContent = `Login test ${data.status}. No credential values were stored or returned.`;
+  } catch (error) {
+    loginTestMessage.classList.add("error");
+    loginTestMessage.textContent = error.message;
+  } finally {
+    loginTestButton.disabled = false;
+  }
 }
 
 async function saveAuthentication(event) {
@@ -466,4 +495,5 @@ baselineForm.addEventListener("submit", approveBaseline);
 scheduleForm.addEventListener("submit", saveSchedule);
 authenticationForm.addEventListener("submit", saveAuthentication);
 loginJourneyForm.addEventListener("submit", saveLoginJourney);
+loginTestButton.addEventListener("click", runLoginTest);
 loadSites();
