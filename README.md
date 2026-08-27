@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.0.24`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.0.25`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.0.24 adds a bounded metadata-only readiness gate after direct navigation. It waits up to ten seconds for a candidate control to attach before recording structural metadata and reports BLOCKED rather than PASS when the interface never becomes ready. It submits no chat message and captures no page text, screenshots, field values, credentials, or tokens.
+Version 0.0.25 adds a versioned opt-in for the authenticated HTTPS Firestore `/Listen/channel` read stream needed by the Fred interface. The similarly named `/Write/channel`, RevenueCat, analytics, Stripe, and every other unapproved external endpoint remain blocked. Cloudsterr does not store request or response bodies, headers, queries, page text, screenshots, field values, credentials, tokens, or session data.
 
 ## Safety boundary
 

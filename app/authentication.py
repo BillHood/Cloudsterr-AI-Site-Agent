@@ -119,6 +119,7 @@ class ApprovedLogin:
     inventory_navigation_selector: str = ""
     inventory_navigation_index: int = 0
     inventory_destination_path: str = ""
+    firestore_listen_enabled: bool = False
 
     @property
     def origin(self) -> str:
@@ -152,6 +153,15 @@ class ApprovedLogin:
 
     def permits_auth_submission(self, url: str) -> bool:
         return self.approved_auth_endpoint(url) is not None
+
+    def permits_firestore_listen(self, url: str) -> bool:
+        parsed = urlparse(url)
+        return (
+            self.firestore_listen_enabled
+            and parsed.scheme == "https"
+            and parsed.hostname == "firestore.googleapis.com"
+            and parsed.path.rstrip("/").endswith("/Listen/channel")
+        )
 
     def success_path_matches(self, url: str) -> bool:
         actual = urlparse(url)
@@ -199,7 +209,12 @@ async def execute_approved_login(login: ApprovedLogin, username: str, password: 
             approved_document_post = request.resource_type == "document" and permitted and not document_submission_used
             auth_endpoint = login.approved_auth_endpoint(request.url) if request.resource_type in {"fetch", "xhr"} else None
             approved_external_auth_post = auth_endpoint is not None and auth_endpoint not in used_auth_endpoints
-            if request.method == "POST" and (approved_document_post or approved_external_auth_post):
+            approved_firestore_listen = (
+                request.method == "POST"
+                and request.resource_type in {"fetch", "xhr"}
+                and login.permits_firestore_listen(request.url)
+            )
+            if request.method == "POST" and (approved_document_post or approved_external_auth_post or approved_firestore_listen):
                 if approved_document_post:
                     document_submission_used = True
                 if auth_endpoint is not None:
