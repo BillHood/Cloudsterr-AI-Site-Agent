@@ -191,6 +191,13 @@ FIXED_CHAT_PROBE = {
     "firestore_write_confirmed": True,
 }
 
+FIXED_CHAT_PROBE_RETRY = {
+    **FIXED_CHAT_PROBE,
+    "retry": 1,
+    "firestore_write_get_confirmed": True,
+    "gemini_post_confirmed": True,
+}
+
 
 LOGIN_DEFINITION_FIELDS = (
     "username_selector", "password_selector", "submit_selector", "success_path", "success_text",
@@ -539,7 +546,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.0.33",
+    version="0.0.34",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -1403,3 +1410,62 @@ async def capture_fixed_chat_probe_response(site_id: str, request: LoginExecutio
             connection.execute("UPDATE chat_probe_runs SET evidence_json = ? WHERE id = ?", (json.dumps(stored_evidence), run_id))
             connection.commit()
     return {"run_id": run_id, **evidence}
+
+
+@app.post("/api/sites/{site_id}/fixed-chat-probe-retry-once", tags=["authentication"])
+async def run_fixed_chat_probe_retry_once(site_id: str, request: LoginExecutionRequest) -> dict:
+    if not request.execution_confirmed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Explicit confirmation of the exact single retry is required.")
+    definition_json = json.dumps(FIXED_CHAT_PROBE_RETRY, sort_keys=True)
+    run_id = f"fixed-chat-probe-v2-{site_id}"
+    started_at = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
+        login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
+        original_run = connection.execute("SELECT * FROM chat_probe_runs WHERE id = ?", (f"fixed-chat-probe-v1-{site_id}",)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        if profile is None or login is None or original_run is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The original one-time probe must exist before its authorized retry.")
+        username = os.environ.get(profile["username_env"])
+        password = os.environ.get(profile["password_env"])
+        if not username or not password:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configured test credentials are unavailable; the retry was not reserved or submitted.")
+        previous_probe = connection.execute("SELECT * FROM interaction_definitions WHERE id = ?", (original_run["probe_interaction_definition_id"],)).fetchone()
+        retry_probe = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'chat_probe' AND definition_json = ?", (site_id, definition_json)).fetchone()
+        if retry_probe is None:
+            retry_probe_id = str(uuid4())
+            connection.execute(
+                "INSERT INTO interaction_definitions (id, site_id, interaction_type, version, definition_json, approved_at, supersedes_id) VALUES (?, ?, 'chat_probe', 2, ?, ?, ?)",
+                (retry_probe_id, site_id, definition_json, started_at, previous_probe["id"]),
+            )
+            retry_probe = connection.execute("SELECT * FROM interaction_definitions WHERE id = ?", (retry_probe_id,)).fetchone()
+        try:
+            connection.execute(
+                "INSERT INTO chat_probe_runs (id, site_id, login_interaction_definition_id, probe_interaction_definition_id, started_at, completed_at, status, evidence_json) VALUES (?, ?, ?, ?, ?, ?, 'RUNNING', '{}')",
+                (run_id, site_id, login["id"], retry_probe["id"], started_at, started_at),
+            )
+            original_evidence = json.loads(original_run["evidence_json"])
+            original_evidence.pop("latest_response", None)
+            original_evidence.pop("response_contains_ready", None)
+            original_evidence["uncorrelated_capture_removed_at"] = started_at
+            original_evidence["page_text_captured"] = False
+            connection.execute("UPDATE chat_probe_runs SET evidence_json = ? WHERE id = ?", (json.dumps(original_evidence), original_run["id"]))
+            connection.commit()
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The authorized retry has already been consumed; it cannot run again.") from error
+    evidence = await execute_approved_login(
+        approved_login_from_records(site, profile, login), username, password,
+        collect_control_inventory=True, chat_probe=FIXED_CHAT_PROBE_RETRY, capture_latest_response=True,
+    )
+    evidence["page_text_captured"] = evidence.get("latest_response") is not None
+    evidence["visible_errors"] = []
+    completed_at = datetime.now(UTC).isoformat()
+    with closing(connect_database()) as connection:
+        connection.execute(
+            "UPDATE chat_probe_runs SET completed_at = ?, status = ?, evidence_json = ? WHERE id = ?",
+            (completed_at, evidence["status"], json.dumps(evidence), run_id),
+        )
+        connection.commit()
+    return {"run_id": run_id, "probe_version": 2, **evidence}

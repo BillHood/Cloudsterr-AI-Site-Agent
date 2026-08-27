@@ -28,6 +28,8 @@ const chatProbeButton = document.querySelector("#chat-probe-button");
 const chatProbeMessage = document.querySelector("#chat-probe-message");
 const chatResponseButton = document.querySelector("#chat-response-button");
 const chatResponseMessage = document.querySelector("#chat-response-message");
+const chatProbeRetryButton = document.querySelector("#chat-probe-retry-button");
+const chatProbeRetryMessage = document.querySelector("#chat-probe-retry-message");
 
 function appendEvidenceDetail(parent, label, value) {
   const detail = document.createElement("p");
@@ -591,6 +593,29 @@ async function captureFixedChatResponse() {
   }
 }
 
+async function runFixedChatProbeRetry() {
+  if (!window.confirm("Run the separately authorized single retry? It may duplicate a partially persisted first attempt. The exact message is unchanged and this retry cannot run twice.")) return;
+  chatProbeRetryButton.disabled = true;
+  chatProbeRetryMessage.classList.remove("error");
+  chatProbeRetryMessage.textContent = "Running the single authorized retry and waiting for its correlated Fred response…";
+  try {
+    const response = await fetch(`/api/sites/${chatInventoryButton.dataset.siteId}/fixed-chat-probe-retry-once`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", Accept: "application/json"},
+      body: JSON.stringify({execution_confirmed: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(formatApiError(data, "The authorized retry could not run."));
+    chatProbeRetryMessage.classList.toggle("error", data.status !== "PASS");
+    chatProbeRetryMessage.textContent = data.latest_response
+      ? `Retry ${data.status}. Captured: ${data.latest_response} · READY found: ${data.response_contains_ready ? "yes" : "no"}`
+      : `Retry ${data.status}. Message submitted: ${data.chat_message_submitted ? "yes" : "no"}; no correlated response was stored.`;
+  } catch (error) {
+    chatProbeRetryMessage.classList.add("error");
+    chatProbeRetryMessage.textContent = error.message;
+  }
+}
+
 async function saveAuthentication(event) {
   event.preventDefault();
   const formData = new FormData(authenticationForm);
@@ -705,4 +730,5 @@ loginTestButton.addEventListener("click", runLoginTest);
 chatInventoryButton.addEventListener("click", runChatInventory);
 chatProbeButton.addEventListener("click", runFixedChatProbe);
 chatResponseButton.addEventListener("click", captureFixedChatResponse);
+chatProbeRetryButton.addEventListener("click", runFixedChatProbeRetry);
 loadSites();

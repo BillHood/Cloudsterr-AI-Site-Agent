@@ -217,6 +217,7 @@ async def execute_approved_login(
         auth_responses: list[dict] = []
         inventory_navigation_matches = None
         probe_write_window = False
+        gemini_submission_used = False
 
         def record_auth_response(response) -> None:
             if response.request.method == "POST" and login.permits_auth_submission(response.url):
@@ -232,7 +233,7 @@ async def execute_approved_login(
         page.on("response", record_auth_response)
 
         async def enforce(route: Route, request: Request) -> None:
-            nonlocal document_submission_used
+            nonlocal document_submission_used, gemini_submission_used
             same_origin = urlparse(request.url).netloc == urlparse(login.base_url).netloc
             permitted = same_origin and login.permitted_url(request.url)
             if request.method in {"GET", "HEAD"} and permitted:
@@ -245,6 +246,17 @@ async def execute_approved_login(
                 and login.permits_firestore_listen(request.url)
             )
             if approved_firestore_listen_get:
+                await route.continue_()
+                return
+            approved_firestore_write_get = (
+                probe_write_window
+                and request.method == "GET"
+                and request.resource_type in {"fetch", "xhr"}
+                and urlparse(request.url).scheme == "https"
+                and urlparse(request.url).hostname == "firestore.googleapis.com"
+                and urlparse(request.url).path.rstrip("/").endswith("/Write/channel")
+            )
+            if approved_firestore_write_get:
                 await route.continue_()
                 return
             approved_revenuecat_get = (
@@ -271,11 +283,22 @@ async def execute_approved_login(
                 and urlparse(request.url).hostname == "firestore.googleapis.com"
                 and urlparse(request.url).path.rstrip("/").endswith("/Write/channel")
             )
-            if request.method == "POST" and (approved_document_post or approved_external_auth_post or approved_firestore_listen or approved_firestore_write):
+            approved_gemini_post = (
+                probe_write_window
+                and not gemini_submission_used
+                and request.method == "POST"
+                and request.resource_type in {"fetch", "xhr"}
+                and urlparse(request.url).scheme == "https"
+                and urlparse(request.url).netloc == urlparse(login.base_url).netloc
+                and urlparse(request.url).path.rstrip("/") == "/api/gemini"
+            )
+            if request.method == "POST" and (approved_document_post or approved_external_auth_post or approved_firestore_listen or approved_firestore_write or approved_gemini_post):
                 if approved_document_post:
                     document_submission_used = True
                 if auth_endpoint is not None:
                     used_auth_endpoints.add(auth_endpoint)
+                if approved_gemini_post:
+                    gemini_submission_used = True
                 await route.continue_()
                 return
             blocked = sanitized_request_evidence(request.url, request.method, request.resource_type)
@@ -340,7 +363,20 @@ async def execute_approved_login(
                     await page.locator(chat_probe["submit_selector"]).first.click(timeout=5_000)
                     probe_submitted = True
                     stage = "CHAT_PROBE_SUBMITTED"
-                    await page.wait_for_timeout(5_000)
+                    if capture_latest_response:
+                        await page.wait_for_function(
+                            """probeMessage => {
+                                const container = document.querySelector('.chat-messages');
+                                if (!container) return false;
+                                const messages = Array.from(container.querySelectorAll('.chat-message'));
+                                const probeIndex = messages.findIndex(message => message.innerText.includes(probeMessage));
+                                return probeIndex >= 0 && messages.slice(probeIndex + 1).some(message => message.classList.contains('assistant'));
+                            }""",
+                            "Cloudsterr functional check. Please reply with READY.",
+                            timeout=30_000,
+                        )
+                    else:
+                        await page.wait_for_timeout(5_000)
                     probe_write_window = False
                     probe_input_cleared = await probe_input.evaluate("element => element.value.length === 0")
                 raw_controls = await page.locator(control_selector).evaluate_all(
