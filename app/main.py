@@ -269,19 +269,31 @@ def current_plan_key() -> str:
     return configured if configured in PLAN_CATALOG else "free"
 
 
-def browser_usage(connection: sqlite3.Connection, now: datetime | None = None) -> int:
+def browser_usage(connection: sqlite3.Connection, account_id: str | None = None, now: datetime | None = None) -> int:
     current = now or datetime.now(UTC)
     month_start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     tables = ("authentication_runs", "chat_inventory_runs", "chat_probe_runs", "fred_monitor_runs")
-    return sum(connection.execute(f"SELECT COUNT(*) FROM {table} WHERE started_at >= ?", (month_start,)).fetchone()[0] for table in tables)
+    if account_id is None:
+        return sum(connection.execute(f"SELECT COUNT(*) FROM {table} WHERE started_at >= ?", (month_start,)).fetchone()[0] for table in tables)
+    return sum(connection.execute(
+        f"SELECT COUNT(*) FROM {table} JOIN sites ON sites.id = {table}.site_id WHERE {table}.started_at >= ? AND sites.account_id = ?",
+        (month_start, account_id),
+    ).fetchone()[0] for table in tables)
 
 
-def plan_snapshot(connection: sqlite3.Connection) -> dict:
-    key = current_plan_key()
+def plan_snapshot(connection: sqlite3.Connection, account_id: str | None = None) -> dict:
+    account = connection.execute("SELECT plan_key FROM account_users WHERE id = ?", (account_id,)).fetchone() if account_id else None
+    key = account["plan_key"] if account and account["plan_key"] in PLAN_CATALOG else current_plan_key()
     plan = PLAN_CATALOG[key]
-    used = browser_usage(connection)
+    used = browser_usage(connection, account_id)
     month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    api_used = connection.execute("SELECT COUNT(*) FROM api_check_runs WHERE started_at >= ?", (month_start,)).fetchone()[0]
+    if account_id is None:
+        api_used = connection.execute("SELECT COUNT(*) FROM api_check_runs WHERE started_at >= ?", (month_start,)).fetchone()[0]
+    else:
+        api_used = connection.execute(
+            "SELECT COUNT(*) FROM api_check_runs JOIN sites ON sites.id = api_check_runs.site_id WHERE api_check_runs.started_at >= ? AND sites.account_id = ?",
+            (month_start, account_id),
+        ).fetchone()[0]
     return {
         "key": key, **plan, "browser_runs_used": used,
         "browser_runs_remaining": max(0, plan["browser_run_limit"] - used),
@@ -290,14 +302,14 @@ def plan_snapshot(connection: sqlite3.Connection) -> dict:
     }
 
 
-def require_browser_capacity(connection: sqlite3.Connection) -> None:
-    plan = plan_snapshot(connection)
+def require_browser_capacity(connection: sqlite3.Connection, account_id: str | None = None) -> None:
+    plan = plan_snapshot(connection, account_id)
     if plan["browser_runs_remaining"] <= 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan browser-run limit has been reached for this month.")
 
 
-def require_api_capacity(connection: sqlite3.Connection, requested_runs: int) -> None:
-    plan = plan_snapshot(connection)
+def require_api_capacity(connection: sqlite3.Connection, requested_runs: int, account_id: str | None = None) -> None:
+    plan = plan_snapshot(connection, account_id)
     if requested_runs < 1 or requested_runs > plan["api_runs_remaining"]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan does not have enough API runs remaining this month.")
 
@@ -380,10 +392,15 @@ def connect_database() -> sqlite3.Connection:
             email TEXT NOT NULL UNIQUE,
             password_salt TEXT NOT NULL,
             password_hash TEXT NOT NULL,
+            plan_key TEXT NOT NULL DEFAULT 'free',
             created_at TEXT NOT NULL
         )
         """
     )
+    account_user_columns = {row[1] for row in connection.execute("PRAGMA table_info(account_users)")}
+    if "plan_key" not in account_user_columns:
+        connection.execute("ALTER TABLE account_users ADD COLUMN plan_key TEXT NOT NULL DEFAULT 'free'")
+        connection.execute("UPDATE account_users SET plan_key = ?", (current_plan_key(),))
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS account_sessions (
@@ -401,6 +418,7 @@ def connect_database() -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS sites (
             id TEXT PRIMARY KEY,
+            account_id TEXT,
             name TEXT NOT NULL,
             base_url TEXT NOT NULL UNIQUE,
             environment TEXT NOT NULL,
@@ -409,10 +427,18 @@ def connect_database() -> sqlite3.Connection:
             allowed_path TEXT NOT NULL,
             excluded_paths TEXT NOT NULL,
             status TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES account_users(id)
         )
         """
     )
+    site_columns = {row[1] for row in connection.execute("PRAGMA table_info(sites)")}
+    if "account_id" not in site_columns:
+        connection.execute("ALTER TABLE sites ADD COLUMN account_id TEXT")
+    owner_count = connection.execute("SELECT COUNT(*) FROM account_users").fetchone()[0]
+    if owner_count == 1:
+        connection.execute("UPDATE sites SET account_id = (SELECT id FROM account_users ORDER BY created_at LIMIT 1) WHERE account_id IS NULL")
+    connection.execute("CREATE INDEX IF NOT EXISTS sites_account_id ON sites(account_id)")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS authentication_runs (
@@ -750,10 +776,12 @@ async def run_scheduled_fred_monitor(site_id: str) -> dict:
     now = datetime.now(UTC)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     with closing(connect_database()) as connection:
-        require_browser_capacity(connection)
-        plan = plan_snapshot(connection)
-        schedule = connection.execute("SELECT * FROM fred_monitor_schedules WHERE site_id = ?", (site_id,)).fetchone()
         site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        if site is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
+        require_browser_capacity(connection, site["account_id"])
+        plan = plan_snapshot(connection, site["account_id"])
+        schedule = connection.execute("SELECT * FROM fred_monitor_schedules WHERE site_id = ?", (site_id,)).fetchone()
         profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
         if schedule is None or not schedule["enabled"]:
@@ -845,7 +873,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Cloudsterr AI Site Agent",
     description="Authorized functional website monitoring from an end user's perspective.",
-    version="0.1.5",
+    version="0.1.6",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -877,6 +905,12 @@ async def require_cloudsterr_session(request: Request, call_next):
     request.state.user_id = session["user_id"]
     request.state.user_email = session["email"]
     request.state.session_id = session["session_id"]
+    site_route = re.match(r"^/api/sites/([^/]+)(?:/|$)", request.url.path)
+    if site_route:
+        with closing(connect_database()) as connection:
+            owned = connection.execute("SELECT id FROM sites WHERE id = ? AND account_id = ?", (site_route.group(1), session["user_id"])).fetchone()
+        if owned is None:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": "Site not found."})
     return await call_next(request)
 
 app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
@@ -924,14 +958,18 @@ async def account_me(request: Request) -> dict:
 @app.post("/api/auth/register", tags=["account"], status_code=status.HTTP_201_CREATED)
 async def register_account(credentials: AccountCredentials, response: Response) -> dict:
     with closing(connect_database()) as connection:
-        if connection.execute("SELECT COUNT(*) FROM account_users").fetchone()[0] > 0:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This Cloudsterr installation already has an owner account. Sign in instead.")
+        existing_account_count = connection.execute("SELECT COUNT(*) FROM account_users").fetchone()[0]
         user_id = str(uuid4())
         salt, password_hash = hash_password(credentials.password)
-        connection.execute(
-            "INSERT INTO account_users (id, email, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
-            (user_id, credentials.email, salt, password_hash, datetime.now(UTC).isoformat()),
-        )
+        try:
+            connection.execute(
+                "INSERT INTO account_users (id, email, password_salt, password_hash, plan_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, credentials.email, salt, password_hash, current_plan_key(), datetime.now(UTC).isoformat()),
+            )
+        except sqlite3.IntegrityError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists. Sign in instead.") from error
+        if existing_account_count == 0:
+            connection.execute("UPDATE sites SET account_id = ? WHERE account_id IS NULL", (user_id,))
         token = create_session(connection, user_id)
     set_session_cookie(response, token)
     return {"authenticated": True, "email": credentials.email}
@@ -960,15 +998,15 @@ async def logout_account(request: Request, response: Response) -> dict:
 
 
 @app.get("/api/account/plan", tags=["account"])
-async def get_account_plan() -> dict:
+async def get_account_plan(request: Request) -> dict:
     with closing(connect_database()) as connection:
-        return plan_snapshot(connection)
+        return plan_snapshot(connection, request.state.user_id)
 
 
 @app.get("/api/sites", tags=["sites"])
-async def list_sites() -> dict[str, list[dict[str, str | int | None | list[str]]]]:
+async def list_sites(request: Request) -> dict[str, list[dict[str, str | int | None | list[str]]]]:
     with closing(connect_database()) as connection:
-        rows = connection.execute("SELECT * FROM sites ORDER BY created_at DESC").fetchall()
+        rows = connection.execute("SELECT * FROM sites WHERE account_id = ? ORDER BY created_at DESC", (request.state.user_id,)).fetchall()
         sites = []
         for row in rows:
             item = serialize_site(row)
@@ -985,7 +1023,7 @@ async def list_sites() -> dict[str, list[dict[str, str | int | None | list[str]]
 
 
 @app.post("/api/sites", tags=["sites"], status_code=status.HTTP_201_CREATED)
-async def register_site(site: SiteRegistration) -> dict[str, str | int | None | list[str]]:
+async def register_site(site: SiteRegistration, request: Request) -> dict[str, str | int | None | list[str]]:
     if not site.authorization_confirmed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -998,19 +1036,20 @@ async def register_site(site: SiteRegistration) -> dict[str, str | int | None | 
 
     try:
         with closing(connect_database()) as connection:
-            plan = plan_snapshot(connection)
-            site_count = connection.execute("SELECT COUNT(*) FROM sites").fetchone()[0]
+            plan = plan_snapshot(connection, request.state.user_id)
+            site_count = connection.execute("SELECT COUNT(*) FROM sites WHERE account_id = ?", (request.state.user_id,)).fetchone()[0]
             if site_count >= plan["site_limit"]:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The {plan['name']} plan allows up to {plan['site_limit']} registered sites.")
             connection.execute(
                 """
                 INSERT INTO sites (
-                    id, name, base_url, environment, owner, description,
+                    id, account_id, name, base_url, environment, owner, description,
                     allowed_path, excluded_paths, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     site_id,
+                    request.state.user_id,
                     site.name,
                     normalized_url,
                     site.environment,
@@ -1725,8 +1764,8 @@ async def run_fixed_chat_probe_once(site_id: str, request: LoginExecutionRequest
     run_id = f"fixed-chat-probe-v1-{site_id}"
     started_at = datetime.now(UTC).isoformat()
     with closing(connect_database()) as connection:
-        require_browser_capacity(connection)
         site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        require_browser_capacity(connection, site["account_id"])
         profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
         if site is None:
@@ -1926,8 +1965,8 @@ async def run_fred_online_check_once(site_id: str, request: LoginExecutionReques
     run_id = f"fred-online-check-v1-{site_id}"
     started_at = datetime.now(UTC).isoformat()
     with closing(connect_database()) as connection:
-        require_browser_capacity(connection)
         site = connection.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
+        require_browser_capacity(connection, site["account_id"])
         profile = connection.execute("SELECT * FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT * FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
         prior_run = connection.execute("SELECT * FROM chat_probe_runs WHERE id = ?", (f"fixed-chat-probe-v3-{site_id}",)).fetchone()
@@ -2000,13 +2039,13 @@ async def save_fred_monitor_schedule(site_id: str, schedule: FredMonitorSchedule
         )
     now = datetime.now(UTC)
     with closing(connect_database()) as connection:
-        plan = plan_snapshot(connection)
+        site = connection.execute("SELECT id, account_id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        plan = plan_snapshot(connection, site["account_id"])
         if schedule.enabled and schedule.frequency not in plan["allowed_frequencies"]:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Every-minute monitoring requires Starter. The {plan['name']} plan supports 5 minutes or slower.",
             )
-        site = connection.execute("SELECT id FROM sites WHERE id = ?", (site_id,)).fetchone()
         profile = connection.execute("SELECT site_id FROM authentication_profiles WHERE site_id = ?", (site_id,)).fetchone()
         login = connection.execute("SELECT id FROM interaction_definitions WHERE site_id = ? AND interaction_type = 'login' ORDER BY version DESC LIMIT 1", (site_id,)).fetchone()
         if site is None:
@@ -2036,7 +2075,8 @@ async def save_fred_monitor_schedule(site_id: str, schedule: FredMonitorSchedule
 @app.get("/api/sites/{site_id}/fred-monitor-runs", tags=["schedules"])
 async def list_fred_monitor_runs(site_id: str) -> dict:
     with closing(connect_database()) as connection:
-        plan = plan_snapshot(connection)
+        site = connection.execute("SELECT account_id FROM sites WHERE id = ?", (site_id,)).fetchone()
+        plan = plan_snapshot(connection, site["account_id"])
         retained_after = (datetime.now(UTC) - timedelta(days=plan["history_days"])).isoformat()
         rows = connection.execute(
             "SELECT * FROM fred_monitor_runs WHERE site_id = ? AND started_at >= ? ORDER BY started_at DESC",
@@ -2130,7 +2170,7 @@ async def run_sahara_api_checks(site_id: str, request: LoginExecutionRequest) ->
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found.")
         if not definitions:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approve the Sahara API preset before running it.")
-        require_api_capacity(connection, len(definitions))
+        require_api_capacity(connection, len(definitions), site["account_id"])
     results = []
     for definition in definitions:
         started_at = datetime.now(UTC).isoformat()

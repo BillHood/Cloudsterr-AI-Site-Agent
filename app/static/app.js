@@ -53,6 +53,7 @@ const accountGate = document.querySelector("#account-gate");
 const accountForm = document.querySelector("#account-form");
 const accountCopy = document.querySelector("#account-copy");
 const accountSubmit = document.querySelector("#account-submit");
+const accountModeButton = document.querySelector("#account-mode-button");
 const accountMessage = document.querySelector("#account-message");
 const accountEmail = document.querySelector("#account-email");
 const logoutButton = document.querySelector("#logout-button");
@@ -75,6 +76,7 @@ function showAccountGate(registrationAvailable) {
   accountForm.dataset.mode = registrationAvailable ? "register" : "login";
   accountCopy.textContent = registrationAvailable ? "Create the owner account for this Cloudsterr installation." : "Sign in with the Cloudsterr owner account.";
   accountSubmit.textContent = registrationAvailable ? "Create owner account" : "Sign in";
+  accountModeButton.textContent = registrationAvailable ? "I already have an account" : "Create a new account";
   accountForm.elements.password.autocomplete = registrationAvailable ? "new-password" : "current-password";
 }
 
@@ -113,6 +115,10 @@ async function logoutAccount() {
   await fetch("/api/auth/logout", {method: "POST", headers: {Accept: "application/json"}});
   activePlan = null;
   showAccountGate(false);
+}
+
+function toggleAccountMode() {
+  showAccountGate(accountForm.dataset.mode !== "register");
 }
 
 function appendEvidenceDetail(parent, label, value) {
@@ -1021,5 +1027,6 @@ fredMonitorForm.addEventListener("submit", saveFredMonitor);
 apiPresetButton.addEventListener("click", approveApiPreset);
 apiRunButton.addEventListener("click", runApiChecks);
 accountForm.addEventListener("submit", submitAccount);
+accountModeButton.addEventListener("click", toggleAccountMode);
 logoutButton.addEventListener("click", logoutAccount);
 initializeAccount();

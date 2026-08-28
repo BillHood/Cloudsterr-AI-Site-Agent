@@ -1,6 +1,6 @@
 # Cloudsterr-AI-Site-Agent
 
-Current application version: `v0.1.5`. Subsequent releases increment the patch number sequentially.
+Current application version: `v0.1.6`. Subsequent releases increment the patch number sequentially.
 
 Cloudsterr-AI-Site-Agent is a web application for continuously verifying whether authorized websites actually work from an end user's perspective.
 
@@ -14,7 +14,7 @@ The product cycle is:
 
 ## Repository status
 
-Version 0.1.5 adds explicitly approved, same-origin Sahara API checks for the in-boundary homepage, configured login route, and `/dashboard/fred`. Checks use GET only, require status 200 within three seconds, enforce Free/Starter API quotas, and store sanitized status/latency evidence without response bodies, cookies, tokens, headers, or query strings. Authenticated Firestore, RevenueCat, and Gemini checks remain out of scope.
+Version 0.1.6 adds account tenant ownership. Every registered site is assigned to its creating account; central authorization rejects cross-account site routes with 404; site lists, limits, browser/API usage, plan entitlements, history retention, monitors, and runs are account-scoped through site ownership. Existing installation-wide sites are automatically claimed only when exactly one pre-migration owner exists. Multiple accounts may now register safely.
 
 ## Safety boundary
 

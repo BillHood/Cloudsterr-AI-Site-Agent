@@ -13,6 +13,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def isolated_data_directory(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("CLOUDSTERR_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("CLOUDSTERR_PLAN", raising=False)
     client.cookies.clear()
     registered = client.post("/api/auth/register", json={"email": "owner@example.com", "password": "correct-horse-battery-staple"})
     assert registered.status_code == 201
@@ -36,7 +37,7 @@ def registration_payload(**overrides) -> dict:
 def test_health_endpoint() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.5"}
+    assert response.json() == {"status": "ok", "version": "0.1.6"}
 
 
 def test_account_session_protects_dashboard_apis() -> None:
@@ -51,7 +52,24 @@ def test_account_session_protects_dashboard_apis() -> None:
     assert client.get("/api/sites").status_code == 200
 
 
-def test_plan_endpoint_defaults_to_free_and_supports_trusted_starter_configuration(monkeypatch) -> None:
+def test_accounts_cannot_see_or_access_each_others_sites() -> None:
+    first_site = client.post("/api/sites", json=registration_payload()).json()
+    client.post("/api/auth/logout")
+    second_account = client.post("/api/auth/register", json={"email": "second@example.com", "password": "another-correct-password"})
+    assert second_account.status_code == 201
+    assert client.get("/api/sites").json()["sites"] == []
+    assert client.get(f"/api/sites/{first_site['id']}/runs").status_code == 404
+    second_site = client.post("/api/sites", json=registration_payload(name="Second Site", base_url="https://second.example.com"))
+    assert second_site.status_code == 201
+    assert [site["name"] for site in client.get("/api/sites").json()["sites"]] == ["Second Site"]
+
+    client.post("/api/auth/logout")
+    assert client.post("/api/auth/login", json={"email": "owner@example.com", "password": "correct-horse-battery-staple"}).status_code == 200
+    assert [site["name"] for site in client.get("/api/sites").json()["sites"]] == [first_site["name"]]
+    assert client.get(f"/api/sites/{second_site.json()['id']}/runs").status_code == 404
+
+
+def test_plan_is_attached_to_each_account_at_registration(monkeypatch) -> None:
     monkeypatch.delenv("CLOUDSTERR_PLAN", raising=False)
     free = client.get("/api/account/plan")
     assert free.status_code == 200
@@ -61,6 +79,9 @@ def test_plan_endpoint_defaults_to_free_and_supports_trusted_starter_configurati
     assert free.json()["api_checks_available"] is True
 
     monkeypatch.setenv("CLOUDSTERR_PLAN", "starter")
+    assert client.get("/api/account/plan").json()["key"] == "free"
+    client.post("/api/auth/logout")
+    assert client.post("/api/auth/register", json={"email": "starter@example.com", "password": "starter-account-password"}).status_code == 201
     starter = client.get("/api/account/plan")
     assert starter.status_code == 200
     assert starter.json()["price_annual_monthly"] == 12
@@ -343,7 +364,7 @@ def test_dashboard_is_served() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "Register a site" in response.text
-    assert "AI Site Agent <span class=\"version\">v0.1.5</span>" in response.text
+    assert "AI Site Agent <span class=\"version\">v0.1.6</span>" in response.text
     assert "does not start discovery or monitoring" in response.text
 
 
@@ -671,6 +692,8 @@ def test_chat_inventory_requires_confirmation_and_submits_no_message(monkeypatch
 
 def test_fixed_chat_probe_is_exact_and_single_use(monkeypatch) -> None:
     monkeypatch.setenv("CLOUDSTERR_PLAN", "starter")
+    client.post("/api/auth/logout")
+    assert client.post("/api/auth/register", json={"email": "starter@example.com", "password": "starter-account-password"}).status_code == 201
     created = client.post("/api/sites", json=registration_payload())
     site_id = created.json()["id"]
     client.put(

@@ -27,6 +27,7 @@
           <label>Email<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
           <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"><span class="field-help">Use at least 12 characters.</span></label>
           <button id="account-submit" class="primary-button" type="submit">Create owner account</button>
+          <button id="account-mode-button" class="secondary-button" type="button">I already have an account</button>
           <p id="account-message" class="status-message" aria-live="polite"></p>
         </form>
       </div>
@@ -34,14 +35,14 @@
 
     <main id="main-content" hidden>
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">AI Site Agent <span class="version">v0.1.5</span></p>
+        <p class="eyebrow">AI Site Agent <span class="version">v0.1.6</span></p>
         <h1 id="hero-title">Know whether your website actually works.</h1>
         <p class="hero-copy">
           Cloudsterr will exercise approved user journeys, preserve evidence,
           and show which website needs attention.
         </p>
         <div class="boundary" role="note">
-          <strong>v0.1.5 safety boundary:</strong> Discovery and approved runs make read-only
+          <strong>v0.1.6 safety boundary:</strong> Discovery and approved runs make read-only
           GET requests within the approved origin and path. It blocks external
           origins, excluded paths, form submission, and all non-read methods.
         </div>
